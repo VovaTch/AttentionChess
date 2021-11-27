@@ -28,22 +28,6 @@ class S1ChessDataset(Dataset):
         super(S1ChessDataset, self).__init__()
         self.pgn = open(dataset_path, encoding="utf-8")
 
-        # Collect all games
-        # games = []
-        # idx = 0
-        # while True:
-        #     idx += 1
-        #     print(f'Game number {idx}', end='\r')
-        #     game = chess.pgn.read_game(self.pgn)
-        #     if game.headers['Termination'] == 'Normal':
-        #         games.append(game)
-        #     elif game is not None:
-        #         continue
-        #     else:
-        #         break
-        #
-        # self.games = games
-
     def __getitem__(self, idx):
 
         while True:
@@ -116,11 +100,11 @@ class S2ChessDataset(Dataset):
         with torch.no_grad():
             result = self.game_roller.roll_game(self.board)
             move_mat_buffer = self.game_roller.get_selected_move_buffer()
-            board_buffer = self.game_roller.get_move_mat_buffer()
+            board_buffer = self.game_roller.get_board_buffer()
 
-            if result == 1:
+            if result['result'] == 1:
                 cost_multiplier = 1
-            elif result == -1:
+            elif result['result'] == -1:
                 cost_multiplier = -1
             else:
                 cost_multiplier = 0

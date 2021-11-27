@@ -28,8 +28,8 @@ def main():
     print(f'Number of parameters: {params}')
 
     game_roller = GameRoller(attchess, device='cuda')
-    pgn = open("lichess_data/lichess_db_standard_rated_2016-09.pgn")
-    #dataloader = S1AttentionChessLoader(batch_size=1, data_dir="lichess_data/lichess_db_standard_rated_2016-09.pgn")
+    # pgn = open("lichess_data/lichess_db_standard_rated_2016-09.pgn")
+    # dataloader = S1AttentionChessLoader(batch_size=1, data_dir="lichess_data/lichess_db_standard_rated_2016-09.pgn")
     dataloader = S2AttentionChessLoader(batch_size=1, game_roller=game_roller, adversarial_model=attchess)
 
     with torch.no_grad():
@@ -37,7 +37,7 @@ def main():
             board = board.to('cuda').squeeze()
             score = score.to('cuda').squeeze()
             output_moves = attchess(board, turn)
-            loss.stable_l1(board, turn, predicted_logits=output_moves, played_logits=score)
+            loss.des_boost_l1(board, turn, predicted_logits=output_moves, played_logits=score)
 
 
 
