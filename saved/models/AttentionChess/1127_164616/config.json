@@ -1,0 +1,53 @@
+{
+    "name": "AttentionChess",
+    "n_gpu": 1,
+    "arch": {
+        "type": "AttChess",
+        "args": {
+            "hidden_dim": 128,
+            "num_heads": 8,
+            "num_encoder": 5,
+            "num_decoder": 5,
+            "dropout": 0.1
+        }
+    },
+    "data_loader": {
+        "type": "S1AttentionChessLoader",
+        "args": {
+            "batch_size": 1,
+            "shuffle": true,
+            "validation_split": 0.0,
+            "num_workers": 1
+        }
+    },
+    "optimizer": {
+        "type": "AdamW",
+        "args": {
+            "lr": 0.0001,
+            "weight_decay": 0.0001,
+            "amsgrad": true
+        }
+    },
+    "loss": "des_boost_l1",
+    "metrics": [
+        "des_boost_l1",
+        "stable_l1",
+        "greedy_l1"
+    ],
+    "lr_scheduler": {
+        "type": "StepLR",
+        "args": {
+            "step_size": 100000.0,
+            "gamma": 0.1
+        }
+    },
+    "trainer": {
+        "epochs": 500,
+        "save_dir": "saved/",
+        "save_period": 1,
+        "verbosity": 2,
+        "monitor": "min val_loss",
+        "early_stop": 10000000000.0,
+        "tensorboard": true
+    }
+}

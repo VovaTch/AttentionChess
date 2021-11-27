@@ -10,16 +10,17 @@ from utils.util import board_to_tensor, legal_move_mask
 class GameRoller:
     """A class for the model to play against itself. It plays a game and outputs the moves + result"""
 
-    def __init__(self, model: AttChess, device='cuda'):
+    def __init__(self, model: AttChess, device='cuda', move_limit=100):
         """Loads the model"""
         self.model = copy.deepcopy(model)
         self.device = device
+        self.move_limit = move_limit
 
         self.board_buffer = torch.zeros((0, 8, 8)).to(self.device)
         self.move_mat_buffer = torch.zeros((0, 64, 64)).to(self.device)
         self.selected_move_buffer = torch.zeros((0, 64, 64)).to(self.device)
 
-    def roll_game(self, board: chess.Board, moves_to_termination=250):
+    def roll_game(self, board: chess.Board):
         """Plays the entire game"""
         # torch.multiprocessing.set_start_method('spawn')
         board_torch = board_to_tensor(board).unsqueeze(0)
@@ -58,7 +59,7 @@ class GameRoller:
 
             # Conditions for termination
             num_moves = self.move_mat_buffer.size()[0]
-            if num_moves > moves_to_termination:  # Exceeds the number of moves allowed
+            if num_moves > self.move_limit:  # Exceeds the number of moves allowed
                 result = {'result': 0, 'moves': num_moves}
                 break
             if board.is_checkmate():  # Someone wins by checkmate

@@ -10,7 +10,7 @@ def des_boost_l1(board, turns, predicted_logits, played_logits):
     played_targets = played_logits[played_logits != -np.inf]
 
     for idx in range(num_of_moves):
-        played_targets[idx] *= 100 / (num_of_moves - idx)
+        played_targets[idx] *= 10 / (num_of_moves - idx)
 
     loss = torch.nn.MSELoss()(pred_targets, played_targets)
     return loss
@@ -53,7 +53,7 @@ def greedy_l1(board: torch.Tensor, turns, predicted_logits, played_logits):
         played_targets[idx] += material_factor * turn_invertor
         turn_invertor *= -1
 
-    loss = torch.nn.MSELoss(pred_targets, played_targets)
+    loss = torch.nn.MSELoss()(pred_targets, played_targets)
 
     return loss
 

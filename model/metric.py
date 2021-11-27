@@ -1,4 +1,5 @@
 import torch
+from .loss import *  # Ugly but saves time
 
 
 def accuracy(output, target):
@@ -18,3 +19,8 @@ def top_k_acc(output, target, k=3):
         for i in range(k):
             correct += torch.sum(pred[:, i] == target).item()
     return correct / len(target)
+
+
+def smile_pass(output, target):
+    """Return an empty metric; next time I'll try to figure out how to incorporate winning percentage and ELO"""
+    return 1

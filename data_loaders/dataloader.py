@@ -14,7 +14,7 @@ class S1AttentionChessLoader(BaseDataLoader):
     """
     MNIST data loading demo using BaseDataLoader
     """
-    def __init__(self, batch_size, data_dir='liches_data/lichess_db_standard_rated_2016-09.pgn',
+    def __init__(self, batch_size, data_dir='lichess_data/lichess_db_standard_rated_2016-09.pgn',
                  shuffle=True, validation_split=0.0, num_workers=1, training=True):
 
         self.dataset_path = data_dir
@@ -91,6 +91,7 @@ class S2ChessDataset(Dataset):
         self.move_limit = move_limit
         self.adversarial_model = adversarial_model
         self.game_roller = game_roller
+        self.game_roller.move_limit = move_limit
 
     def __getitem__(self, _):
 
@@ -117,6 +118,7 @@ class S2ChessDataset(Dataset):
                 move_mat_buffer[idx][move_mat_buffer[idx] == 1] *= cost_multiplier
                 cost_multiplier *= -1
 
+        self.game_roller.reset_buffers()
         return board_buffer, turn, move_mat_buffer
 
     def __len__(self):
