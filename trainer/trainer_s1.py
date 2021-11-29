@@ -14,7 +14,7 @@ class Trainer(BaseTrainer):
     Trainer class
     """
     def __init__(self, model, criterion, metric_ftns, optimizer, config, device,
-                 data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None, move_limit=75):
+                 data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None, move_limit=125):
         super().__init__(model, criterion, metric_ftns, optimizer, config)
         self.config = config
         self.device = device
@@ -46,17 +46,14 @@ class Trainer(BaseTrainer):
         self.train_metrics.reset()
         for batch_idx, (board, turn, score) in enumerate(self.data_loader):
 
-            # for idx in range(board.size()[0]):
-            #     self.logger.debug(f'Game {idx+1} result is: {torch.max(score[0, idx])}')
-
             board, score = board.to(self.device), score.to(self.device)
-            board = board.squeeze()  # TODO: Temp solution, if I can train with larger batch sizes it can be good
-            score = score.squeeze()
+            board = board.squeeze(0)  # TODO: Temp solution, if I can train with larger batch sizes it can be good
+            score = score.squeeze(0)
 
             if board.size()[0] >= self.move_limit:
-                board = board[:self.move_limit, :, :]
-                score = score[:self.move_limit, :, :]
-                turn = turn[:self.move_limit]
+                board = board[-self.move_limit:, :, :]
+                score = score[-self.move_limit:, :, :]
+                turn = turn[-self.move_limit:]
 
             self.optimizer.zero_grad()
             output = self.model(board, turn)
@@ -76,6 +73,9 @@ class Trainer(BaseTrainer):
                     loss.item()))
             # self.writer.add_image('input', make_grid(board.unsqueeze(1).cpu().repeat(1, 3, 1, 1),
             #                                          nrow=8, normalize=True))
+
+            if self.device == 'cuda':
+                torch.cuda.empty_cache()
 
             if batch_idx == self.len_epoch:
                 break
@@ -102,8 +102,8 @@ class Trainer(BaseTrainer):
         with torch.no_grad():
             for batch_idx, (board, turn, score) in enumerate(self.data_loader):
                 board, score = board.to(self.device), score.to(self.device)
-                board = board.squeeze()  # TODO: Temp solution, if I can train with larger batch sizes it can be good
-                score = score.squeeze()
+                board = board.squeeze(0)  # TODO: Temp solution, if I can train with larger batch sizes it can be good
+                score = score.squeeze(0)
 
                 output = self.model(board, turn)
                 loss = self.criterion(board, turn, predicted_logits=output, played_logits=score)

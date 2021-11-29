@@ -37,7 +37,7 @@ def main(config):
 
     # Prepare adversarial model
     adversarial_model = model
-    game_roller = GameRoller(model)
+    game_roller = GameRoller(model, model)
 
     # setup data_loader instances
     data_loader = config.init_obj('data_loader', module_data, game_roller=game_roller,

@@ -73,6 +73,17 @@ class S2AttentionChessLoader(BaseDataLoader):
     """
     MNIST data loading demo using BaseDataLoader
     """
+    def __init__(self, batch_size, adversarial_model, shuffle=True, validation_split=0.0, num_workers=1,
+                 move_limit=250, training=True, device='cuda'):
+
+        self.dataset = S2ChessDataset(move_limit=move_limit, adversarial_model=adversarial_model, device=device)
+        super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers)
+
+
+class S2AttentionChessLoader(BaseDataLoader):
+    """
+    MNIST data loading demo using BaseDataLoader
+    """
     def __init__(self, batch_size, adversarial_model, game_roller, shuffle=True, validation_split=0.0, num_workers=1,
                  move_limit=250, training=True, device='cuda'):
 

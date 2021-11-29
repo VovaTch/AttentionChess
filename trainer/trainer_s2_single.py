@@ -37,7 +37,6 @@ class Trainer(BaseTrainer):
     def _train_epoch(self, epoch):
         """
         Training logic for an epoch
-
         :param epoch: Integer, current training epoch.
         :return: A log that contains average loss and metric in this epoch.
         """
@@ -68,14 +67,13 @@ class Trainer(BaseTrainer):
                     epoch,
                     self._progress(batch_idx),
                     loss.item()))
-                # self.writer.add_image('input', make_grid(board.unsqueeze(1).cpu().repeat(1, 3, 1, 1),
-                #                                          nrow=8, normalize=True))
 
             if batch_idx == self.len_epoch:
                 break
 
-            del self.data_loader.dataset.adversarial_model
-            self.data_loader.dataset.adversarial_model = copy.deepcopy(self.model)
+            # Update the game generating models
+            self.data_loader.dataset.game_roller.model_good = copy.deepcopy(self.model)
+            self.data_loader.dataset.game_roller.model_evil = copy.deepcopy(self.model)
 
         log = self.train_metrics.result()
 
@@ -90,7 +88,6 @@ class Trainer(BaseTrainer):
     def _valid_epoch(self, epoch):
         """
         Validate after training an epoch
-
         :param epoch: Integer, current training epoch.
         :return: A log that contains information about validation
         """
