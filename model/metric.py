@@ -1,5 +1,5 @@
 import torch
-from .loss import *  # Ugly but saves time
+import numpy as np
 
 
 def des_boost_l1(board, turns, predicted_logits, played_logits):
