@@ -55,6 +55,29 @@ def board_to_tensor_full(board: chess.Board):
     if board.has_castling_rights(chess.BLACK):
         x_special[0, 7, 4] = 1
 
+    # Check for checks
+    if board.is_check() and board.turn:
+        x_special[0, 0, 0] = 1
+        x_special[0, 7, 0] = 1
+    elif board.is_check() and not board.turn:
+        x_special[0, 0, 7] = 1
+        x_special[0, 7, 7] = 1
+
+    # Check for mates
+    if board.is_checkmate() and board.turn:
+        x_special[0, 0, 0] = 2
+        x_special[0, 7, 0] = 2
+    elif board.is_checkmate() and not board.turn:
+        x_special[0, 0, 7] = 2
+        x_special[0, 7, 7] = 2
+
+    # Check for draws:
+    if board.is_fivefold_repetition() or board.is_seventyfive_moves() or board.is_stalemate():
+        x_special[0, 0, 0] = -1
+        x_special[0, 7, 0] = -1
+        x_special[0, 0, 7] = -1
+        x_special[0, 7, 7] = -1
+
     # Concatenate all matrices
     x_total = torch.cat((x, x_turn, x_r_grid, x_c_grid, x_special), 0)
 
@@ -82,8 +105,9 @@ def move_to_tensor(move: chess.Move):
 
     move_legality = 0
     move_quality = 0
+    resign_flag = 0  # 1 for resign, -1 for draw
 
-    move_torch = torch.Tensor([from_square, to_square, promotion, move_legality, move_quality]).float()
+    move_torch = torch.Tensor([from_square, to_square, promotion, move_legality, move_quality, resign_flag]).float()
 
     return move_torch
 

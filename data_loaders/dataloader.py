@@ -4,18 +4,16 @@ from torch.utils.data import Dataset
 from base import BaseDataLoader
 import numpy as np
 
-from utils.util import board_to_tensor, legal_move_mask
+from utils.util import board_to_tensor, board_to_tensor_full, move_to_tensor, legal_move_mask
 from .game_roll import GameRoller
 
-
-# TODO: see if the -inf on all but the played moves is needed
 
 class S1AttentionChessLoader(BaseDataLoader):
     """
     MNIST data loading demo using BaseDataLoader
     """
     def __init__(self, batch_size, data_dir='lichess_data/lichess_db_standard_rated_2016-09.pgn',
-                 shuffle=True, validation_split=0.0, num_workers=1, training=True):
+                 shuffle=True, validation_split=0.1, num_workers=1, training=True):
 
         self.dataset_path = data_dir
         self.dataset = S1ChessDataset(data_dir)
@@ -44,29 +42,31 @@ class S1ChessDataset(Dataset):
         else:
             base_eval = 0
 
-        board_collection = board_to_tensor(board).unsqueeze(0)
-        reward_collection = torch.zeros([0, 64, 64])
-        turn_collection = [True]
+        board_collection = board_to_tensor_full(board).unsqueeze(0)
+        move_collection = torch.zeros((0, 6))
 
         for idx, move in enumerate(game.mainline_moves()):
 
-            ind_reward = torch.zeros([1, 64, 64]) - np.inf
-            ind_reward[0, move.from_square, move.to_square] = base_eval
-            legal_move_mat = legal_move_mask(board)
-            ind_reward += legal_move_mat
-            reward_collection = torch.cat((reward_collection, ind_reward), 0)
+            move_tensor = move_to_tensor(move)
+            move_tensor[3] = 10
+            move_tensor[0: 2] += 0.5
+            if board_collection[-1, 1, 0, 0] == 1:
+                move_tensor[4] = base_eval
+            else:
+                move_tensor[4] = -base_eval
 
-            base_eval = -base_eval
-
+            move_collection = torch.cat((move_collection, move_tensor.unsqueeze(0)), 0)
             board.push(move)
-            board_next = board_to_tensor(board).unsqueeze(0)
-            board_collection = torch.cat((board_collection, board_next), 0)
-            turn_collection.append(not turn_collection[-1])
+            board_new = board_to_tensor_full(board).unsqueeze(0)
+            board_collection = torch.cat((board_collection, board_new), 0)
 
-        return board_collection[:-1], turn_collection[:-1], reward_collection
+        move_last = torch.tensor([0, 0, 0, 10, 0, np.abs(base_eval) + 0.5]) # Last move; resigning is qualified as checkmate here.
+        move_collection = torch.cat((move_collection, move_last.unsqueeze(0)), 0)
+
+        return board_collection, move_collection
 
     def __len__(self):
-        return int(1e6)
+        return int(2e3)
 
 
 class S2AttentionChessLoader(BaseDataLoader):
@@ -77,18 +77,6 @@ class S2AttentionChessLoader(BaseDataLoader):
                  move_limit=250, training=True, device='cuda'):
 
         self.dataset = S2ChessDataset(move_limit=move_limit, adversarial_model=adversarial_model, device=device)
-        super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers)
-
-
-class S2AttentionChessLoader(BaseDataLoader):
-    """
-    MNIST data loading demo using BaseDataLoader
-    """
-    def __init__(self, batch_size, adversarial_model, game_roller, shuffle=True, validation_split=0.0, num_workers=1,
-                 move_limit=250, training=True, device='cuda'):
-
-        self.dataset = S2ChessDataset(move_limit=move_limit, adversarial_model=adversarial_model, device=device,
-                                      game_roller=game_roller)
         super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers)
 
 
@@ -134,4 +122,85 @@ class S2ChessDataset(Dataset):
 
     def __len__(self):
         return int(1)
+
+
+class RuleAttentionChessLoader(BaseDataLoader):
+    """
+    MNIST data loading demo using BaseDataLoader
+    """
+    def __init__(self, batch_size, data_dir='lichess_data/lichess_db_standard_rated_2016-09.pgn',
+                 shuffle=True, validation_split=0.1, num_workers=1, training=True):
+
+        self.dataset_path = data_dir
+        self.dataset = RuleChessDataset(data_dir)
+        super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers)
+
+
+class RuleChessDataset(Dataset):
+
+    def __init__(self, dataset_path):
+        super(RuleChessDataset, self).__init__()
+        self.pgn = open(dataset_path, encoding="utf-8")
+
+    def __getitem__(self, idx):
+
+        while True:
+            game = chess.pgn.read_game(self.pgn)
+            if game.headers['Termination'] == 'Normal':
+                break
+
+        board = game.board()
+        result = game.headers['Result']
+        if result == '1-0':
+            base_eval = 1
+        elif result == '0-1':
+            base_eval = -1
+        else:
+            base_eval = 0
+
+        board_collection = board_to_tensor_full(board).unsqueeze(0)
+        move_collection = torch.zeros((0, 6))
+        legal_move_batch = torch.zeros((0, 200, 6))
+
+        for idx, move in enumerate(game.mainline_moves()):
+
+            move_tensor = move_to_tensor(move)
+            move_tensor[3] = 10
+            move_tensor[0: 2] += 0.5
+            if board_collection[-1, 1, 0, 0] == 1:
+                move_tensor[4] = base_eval
+            else:
+                move_tensor[4] = -base_eval
+
+            legal_move_collection = torch.zeros((0, 6))
+            for legal_move in board.legal_moves:
+
+                legal_move_tensor = move_to_tensor(legal_move)
+                legal_move_tensor[3] = 10
+                legal_move_tensor[0: 2] += 0.5
+                if board_collection[-1, 1, 0, 0] == 1:
+                    legal_move_tensor[4] = 0
+                else:
+                    legal_move_tensor[4] = 0
+                legal_move_collection = torch.cat((legal_move_collection, legal_move_tensor.unsqueeze(0)), 0)
+
+            while legal_move_collection.size()[0] < 200:
+                illegal_move = torch.zeros((1, 6))
+                illegal_move[0, 3] = -100
+                legal_move_collection = torch.cat((legal_move_collection, illegal_move), 0)
+
+            legal_move_batch = torch.cat((legal_move_batch, legal_move_collection.unsqueeze(0)), 0)
+
+            move_collection = torch.cat((move_collection, move_tensor.unsqueeze(0)), 0)
+            board.push(move)
+            board_new = board_to_tensor_full(board).unsqueeze(0)
+            board_collection = torch.cat((board_collection, board_new), 0)
+
+        move_last = torch.tensor([0, 0, 0, -100, 0, 0]).unsqueeze(0) # Last move; resigning is qualified as checkmate here.
+        legal_move_batch = torch.cat((legal_move_batch, move_last.repeat((1, 200, 1))), 0)
+
+        return board_collection, legal_move_batch
+
+    def __len__(self):
+        return int(2e3)
 

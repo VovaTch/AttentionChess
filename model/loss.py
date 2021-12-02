@@ -57,3 +57,6 @@ def greedy_l1(board: torch.Tensor, turns, predicted_logits, played_logits):
 
     return loss
 
+
+def rule_teaching_loss(boards: torch.Tensor, moves: torch.Tensor):
+    pass
