@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 
+from utils.matcher import match_moves
+from model.loss import move_lineup
 
 def des_boost_l1(board, turns, predicted_logits, played_logits):
     """Policy number 1: go for the quickest win, encouraging aggressive play and sacrifices"""
@@ -60,3 +62,44 @@ def greedy_l1(board: torch.Tensor, turns, predicted_logits, played_logits):
 def smile_pass(output, target, predicted_logits, played_logits):
     """Return an empty metric; next time I'll try to figure out how to incorporate winning percentage and ELO"""
     return 1
+
+
+def rule_teaching_loss(pred_moves: torch.Tensor, target_moves: torch.Tensor, **kwargs):
+    """Loss specifically for teaching the net how to play chess and when to resign."""
+
+    if 'eos_loss' in kwargs:
+        eos_loss = kwargs['eos_loss']
+    else:
+        eos_loss = 0.25
+
+    if 'moves_coef' in kwargs:
+        moves_coef = kwargs['moves_coef']
+    else:
+        moves_coef = 5
+
+    matching_indices = match_moves(pred_moves, target_moves)
+    lined_up_preds, lined_up_targets = move_lineup(pred_moves, target_moves, matching_indices)
+    lined_up_preds_legals = lined_up_preds[:, 3]
+    lined_up_targets_legals = lined_up_targets[:, 3]
+
+    # Both of this line for the kinda messy legal move flag
+    lined_up_targets_legals[lined_up_targets_legals == 10] = 1
+    lined_up_targets_legals[lined_up_targets_legals == -100] = 0
+
+    # BCE with logits loss, more numerically stable than classic BCE #TODO: CHECK HOW I DID IT IN ADJDETR
+    weight_vector = torch.ones(lined_up_targets_legals.size()[0]).to(pred_moves.device)
+    weight_vector[lined_up_targets_legals == 1] = eos_loss
+    bceloss = torch.nn.BCEWithLogitsLoss(weight=weight_vector)
+    loss_bce = bceloss(lined_up_preds_legals, lined_up_targets_legals)
+
+    # matching losses on moves; ignores the move quality in this loss
+    l1_loss = torch.nn.L1Loss()
+    lined_up_pred_moves = lined_up_preds[:, [0, 1, 2, 5]]
+    lined_up_pred_moves = lined_up_pred_moves[lined_up_targets_legals == 1]
+    lined_up_target_moves = lined_up_targets[:, [0, 1, 2, 5]]
+    lined_up_target_moves = lined_up_target_moves[lined_up_targets_legals == 1]
+    loss = l1_loss(lined_up_pred_moves, lined_up_target_moves)
+
+    # Total loss
+    loss_tot = loss + moves_coef * loss_bce
+    return loss_tot

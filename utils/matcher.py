@@ -1,7 +1,10 @@
 import torch
 import numpy as np
 
+from scipy.optimize import linear_sum_assignment
 
+
+# TODO: Use linear sum assignment from scipi
 def match_moves(output_moves: torch.Tensor, target_moves: torch.Tensor):
 
     pair_idx_list = []
@@ -28,17 +31,8 @@ def match_moves(output_moves: torch.Tensor, target_moves: torch.Tensor):
             norm_column = torch.norm(sub_block[:, idx_d: idx_d + 2], dim=1)
             norm_matrix = torch.cat((norm_matrix, norm_column.unsqueeze(1)), 1)
 
-        output_matches = []
-        # Compute closest matches to targets
-        for idx_c in range(norm_matrix.size()[1]):
-            indices_match_flat = torch.argmin(norm_matrix)
-            indices_match = [int(torch.floor(indices_match_flat / norm_matrix.size()[1])),
-                             int(indices_match_flat % norm_matrix.size()[1])]
-            norm_matrix[indices_match[0], :] = torch.inf
-            norm_matrix[:, indices_match[1]] = torch.inf
-            output_matches.append([int(board_pair_idx_list[0][indices_match[1]]), indices_match[0]])
-
-        output_matches_torch = torch.tensor(output_matches)
+        output_matches = linear_sum_assignment(norm_matrix.detach().cpu())
+        output_matches_torch = torch.Tensor(output_matches).permute(1, 0).int().to(norm_matrix.device)
 
         pair_idx_list.append(output_matches_torch)
 

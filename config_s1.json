@@ -4,15 +4,16 @@
 
     "arch": {
         "type": "AttChess",
-        "args": {"hidden_dim": 128,
-            "num_heads": 8,
-            "num_encoder": 5,
-            "num_decoder": 5,
+        "args": {
+            "hidden_dim": 96,
+            "num_heads": 4,
+            "num_encoder": 10,
+            "num_decoder": 2,
             "dropout": 0.1
         }
     },
     "data_loader": {
-        "type": "S1AttentionChessLoader",
+        "type": "RuleAttentionChessLoader",
         "args":{
             "batch_size": 1,
             "shuffle": true,
@@ -23,14 +24,14 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-5,
+            "lr": 1e-4,
             "weight_decay": 1e-4,
             "amsgrad": true
         }
     },
-    "loss": "stable_l1",
+    "loss": "rule_teaching_loss",
     "metrics": [
-        "smile_pass"
+        "rule_teaching_loss"
     ],
     "lr_scheduler": {
         "type": "StepLR",
@@ -43,10 +44,10 @@
         "epochs": 500,
 
         "save_dir": "saved/",
-        "save_period": 1,
+        "save_period": 100,
         "verbosity": 2,
         
-        "monitor": "min val_loss",
+        "monitor": "min val_rule_teaching_loss",
         "early_stop": 1e10,
 
         "tensorboard": true

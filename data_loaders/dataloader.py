@@ -177,7 +177,8 @@ class RuleChessDataset(Dataset):
 
                 legal_move_tensor = move_to_tensor(legal_move)
                 legal_move_tensor[3] = 10
-                legal_move_tensor[0: 2] += 0.5
+                legal_move_tensor[0: 3] += 0.5
+                legal_move_tensor[5] += 0.5
                 if board_collection[-1, 1, 0, 0] == 1:
                     legal_move_tensor[4] = 0
                 else:
@@ -196,8 +197,13 @@ class RuleChessDataset(Dataset):
             board_new = board_to_tensor_full(board).unsqueeze(0)
             board_collection = torch.cat((board_collection, board_new), 0)
 
-        move_last = torch.tensor([0, 0, 0, -100, 0, 0]).unsqueeze(0) # Last move; resigning is qualified as checkmate here.
-        legal_move_batch = torch.cat((legal_move_batch, move_last.repeat((1, 200, 1))), 0)
+        if result == '1-0' or result == '0-1':
+            move_last = torch.tensor([0, 0, 0, 10, 0, 1.5]).unsqueeze(0)
+        else:
+            move_last = torch.tensor([0, 0, 0, 10, 0, -0.5]).unsqueeze(0)
+        move_last_after = torch.tensor([0, 0, 0, -100, 0, 0]).unsqueeze(0).repeat((1, 199, 1)) # Last move; resigning is qualified as checkmate here.
+        move_last_after = torch.cat((move_last.unsqueeze(0), move_last_after), 1)
+        legal_move_batch = torch.cat((legal_move_batch, move_last_after), 0)
 
         return board_collection, legal_move_batch
 

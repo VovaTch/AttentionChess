@@ -6,6 +6,7 @@ import numpy as np
 
 from utils.util import board_to_tensor, board_to_tensor_full, legal_move_mask, move_to_tensor, push_torch
 from utils.matcher import match_moves
+from model.loss import rule_teaching_loss
 from model.attchess import AttChess
 from data_loaders.game_roll import GameRoller
 from data_loaders.dataloader import S1AttentionChessLoader, S2AttentionChessLoader, RuleAttentionChessLoader
@@ -25,7 +26,8 @@ def main():
         outputs = attchess(boards.squeeze(0).to('cuda'))
         break
 
-    match_idx = match_moves(outputs, moves.squeeze(0).to('cuda'))
+    loss = rule_teaching_loss(outputs, moves.squeeze(0).to('cuda'))
+
     print(1111)
 
 
