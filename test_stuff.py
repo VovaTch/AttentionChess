@@ -31,9 +31,6 @@ def main():
     print(1111)
 
 
-
-
-
 if __name__ == '__main__':
     #torch.multiprocessing.set_start_method('spawn')  # TODO: This is necessary for the game generating code to work
     main()

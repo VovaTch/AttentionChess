@@ -81,6 +81,8 @@ def board_to_tensor_full(board: chess.Board):
     # Concatenate all matrices
     x_total = torch.cat((x, x_turn, x_r_grid, x_c_grid, x_special), 0)
 
+    del x_c_grid, x_r_grid, x_special, x_turn, x
+
     return x_total
 
 

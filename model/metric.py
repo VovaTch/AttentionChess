@@ -4,6 +4,7 @@ import numpy as np
 from utils.matcher import match_moves
 from model.loss import move_lineup
 
+
 def des_boost_l1(board, turns, predicted_logits, played_logits):
     """Policy number 1: go for the quickest win, encouraging aggressive play and sacrifices"""
     num_of_moves = len(turns)
@@ -59,11 +60,13 @@ def greedy_l1(board: torch.Tensor, turns, predicted_logits, played_logits):
     return loss
 
 
-def smile_pass(output, target, predicted_logits, played_logits):
+@torch.no_grad()
+def smile_pass(output, target):
     """Return an empty metric; next time I'll try to figure out how to incorporate winning percentage and ELO"""
     return 1
 
 
+@torch.no_grad()
 def rule_teaching_loss(pred_moves: torch.Tensor, target_moves: torch.Tensor, **kwargs):
     """Loss specifically for teaching the net how to play chess and when to resign."""
 
@@ -103,3 +106,15 @@ def rule_teaching_loss(pred_moves: torch.Tensor, target_moves: torch.Tensor, **k
     # Total loss
     loss_tot = loss + moves_coef * loss_bce
     return loss_tot
+
+
+@torch.no_grad()
+def cardinality_loss(pred_moves, target_moves):
+    """From DETR, cardinality error is a great representive for the detection of the correct bounding boxes."""
+    num_of_moves = target_moves.size()[0]
+    pred_flat = pred_moves.flatten(0, 1)
+    target_flat = target_moves.flatten(0, 1)
+    num_targets = torch.sum(target_flat[:, 3] == 10)
+    num_preds = torch.sum(pred_flat[:, 3] >= 0)
+    cardinality_error = np.abs(int(num_targets) - int(num_preds)) / num_of_moves
+    return cardinality_error

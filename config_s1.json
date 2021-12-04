@@ -7,9 +7,9 @@
         "args": {
             "hidden_dim": 96,
             "num_heads": 4,
-            "num_encoder": 10,
+            "num_encoder": 6,
             "num_decoder": 2,
-            "dropout": 0.1
+            "dropout": 0.02
         }
     },
     "data_loader": {
@@ -17,26 +17,26 @@
         "args":{
             "batch_size": 1,
             "shuffle": true,
-            "validation_split": 0.001,
+            "validation_split": 0.01,
             "num_workers": 1
         }
     },
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-4,
+            "lr": 1e-3,
             "weight_decay": 1e-4,
             "amsgrad": true
         }
     },
     "loss": "rule_teaching_loss",
     "metrics": [
-        "rule_teaching_loss"
+        "rule_teaching_loss", "cardinality_loss"
     ],
     "lr_scheduler": {
         "type": "StepLR",
         "args": {
-            "step_size": 1e5,
+            "step_size": 100,
             "gamma": 0.1
         }
     },
@@ -44,7 +44,7 @@
         "epochs": 500,
 
         "save_dir": "saved/",
-        "save_period": 100,
+        "save_period": 10,
         "verbosity": 2,
         
         "monitor": "min val_rule_teaching_loss",

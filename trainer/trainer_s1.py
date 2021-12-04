@@ -1,4 +1,5 @@
 import copy
+import gc
 
 import numpy as np
 import torch
@@ -46,6 +47,9 @@ class Trainer(BaseTrainer):
         self.train_metrics.reset()
         for batch_idx, (board, moves) in enumerate(self.data_loader):
 
+            if self.device == 'cuda':
+                torch.cuda.empty_cache()
+
             board, moves = board.to(self.device), moves.to(self.device)
             board = board.squeeze(0)  # TODO: Temp solution, if I can train with larger batch sizes it can be good
             moves = moves.squeeze(0)
@@ -54,7 +58,11 @@ class Trainer(BaseTrainer):
                 board = board[-self.move_limit:, :, :]
                 moves = moves[-self.move_limit:, :, :]
 
+            # print(board.size())
+            # print(moves.size())
+
             self.optimizer.zero_grad()
+
             output = self.model(board)
             loss = self.criterion(output, moves)
             loss.backward()
@@ -66,12 +74,7 @@ class Trainer(BaseTrainer):
                 self.train_metrics.update(met.__name__, met(output, moves))
 
             if batch_idx + 1 % 5:
-                self.logger.debug('Train Epoch: {} {} Loss: {:.6f}'.format(
-                    epoch,
-                    self._progress(batch_idx),
-                    loss.item()))
-            # self.writer.add_image('input', make_grid(board.unsqueeze(1).cpu().repeat(1, 3, 1, 1),
-            #                                          nrow=8, normalize=True))
+                self.logger.debug(f'Train Epoch: {epoch} {self._progress(batch_idx)} Loss: {loss.item():.6f}')
 
             if self.device == 'cuda':
                 torch.cuda.empty_cache()
@@ -99,7 +102,7 @@ class Trainer(BaseTrainer):
         self.model.eval()
         self.valid_metrics.reset()
         with torch.no_grad():
-            for batch_idx, (board, move) in enumerate(self.data_loader):
+            for batch_idx, (board, moves) in enumerate(self.valid_data_loader):
 
                 board, moves = board.to(self.device), moves.to(self.device)
                 board = board.squeeze(0)  # TODO: Temp solution, if I can train with larger batch sizes it can be good

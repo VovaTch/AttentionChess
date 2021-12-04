@@ -146,7 +146,7 @@ class RuleChessDataset(Dataset):
 
         while True:
             game = chess.pgn.read_game(self.pgn)
-            if game.headers['Termination'] == 'Normal':
+            if 'Termination' in game.headers and game.headers['Termination'] == 'Normal':
                 break
 
         board = game.board()
@@ -205,8 +205,12 @@ class RuleChessDataset(Dataset):
         move_last_after = torch.cat((move_last.unsqueeze(0), move_last_after), 1)
         legal_move_batch = torch.cat((legal_move_batch, move_last_after), 0)
 
+        # trying to figure out how to get rid of the data leaks
+        del board_new, illegal_move, legal_move_collection, move_collection, move_last, move_last_after, move_tensor, \
+            legal_move_tensor
+
         return board_collection, legal_move_batch
 
     def __len__(self):
-        return int(2e3)
+        return int(5e3)
 

@@ -97,7 +97,7 @@ def rule_teaching_loss(pred_moves: torch.Tensor, target_moves: torch.Tensor, **k
     lined_up_targets_legals[lined_up_targets_legals == -100] = 0
 
     # BCE with logits loss, more numerically stable than classic BCE #TODO: CHECK HOW I DID IT IN ADJDETR
-    weight_vector = torch.ones(lined_up_targets_legals.size()[0]).to(pred_moves.device)
+    weight_vector = torch.ones(lined_up_targets_legals.size()[0], requires_grad=False).to(pred_moves.device)
     weight_vector[lined_up_targets_legals == 1] = eos_loss
     bceloss = torch.nn.BCEWithLogitsLoss(weight=weight_vector)
     loss_bce = bceloss(lined_up_preds_legals, lined_up_targets_legals)
@@ -113,6 +113,11 @@ def rule_teaching_loss(pred_moves: torch.Tensor, target_moves: torch.Tensor, **k
     # Total loss
     loss_tot = loss + moves_coef * loss_bce
     return loss_tot
+
+
+def test_loss(pred_moves: torch.Tensor, target_moves: torch.Tensor):
+    l1_loss = torch.nn.L1Loss()
+    return l1_loss(pred_moves, target_moves)
 
 
 # TODO: a more ordered criteria that encompasses everything

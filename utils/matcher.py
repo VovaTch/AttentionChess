@@ -5,6 +5,7 @@ from scipy.optimize import linear_sum_assignment
 
 
 # TODO: Use linear sum assignment from scipi
+@torch.no_grad()
 def match_moves(output_moves: torch.Tensor, target_moves: torch.Tensor):
 
     pair_idx_list = []
