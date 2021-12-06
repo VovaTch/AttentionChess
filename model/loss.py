@@ -80,7 +80,7 @@ def rule_teaching_loss(pred_moves: torch.Tensor, target_moves: torch.Tensor, **k
     if 'eos_loss' in kwargs:
         eos_loss = kwargs['eos_loss']
     else:
-        eos_loss = 0.25
+        eos_loss = 0.05
 
     if 'moves_coef' in kwargs:
         moves_coef = kwargs['moves_coef']

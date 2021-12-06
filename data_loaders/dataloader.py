@@ -141,8 +141,30 @@ class RuleChessDataset(Dataset):
     def __init__(self, dataset_path):
         super(RuleChessDataset, self).__init__()
         self.pgn = open(dataset_path, encoding="utf-8")
+        self.game = None
 
-    def __getitem__(self, idx):
+        self.follow_idx = 0
+        self.game_length = 0
+        self.board_collection = None
+        # self.move_collection = None
+        self.legal_move_batch = None
+
+    def __getitem__(self, _):
+
+        if self.follow_idx == 0:
+            self.load_game()
+            self.game_length = self.board_collection.size()[0]
+
+        sampled_board = self.board_collection[self.follow_idx, :, :, :].clone()
+        sampled_legal_move_batch = self.legal_move_batch[self.follow_idx, :, :].clone()
+
+        self.follow_idx += 1
+        if self.follow_idx == self.game_length:
+            self.follow_idx = 0
+
+        return sampled_board, sampled_legal_move_batch
+
+    def load_game(self):
 
         while True:
             game = chess.pgn.read_game(self.pgn)
@@ -158,16 +180,16 @@ class RuleChessDataset(Dataset):
         else:
             base_eval = 0
 
-        board_collection = board_to_tensor_full(board).unsqueeze(0)
-        move_collection = torch.zeros((0, 6))
-        legal_move_batch = torch.zeros((0, 200, 6))
+        self.board_collection = board_to_tensor_full(board).unsqueeze(0)
+        # move_collection = torch.zeros((0, 6))
+        self.legal_move_batch = torch.zeros((0, 200, 6))
 
         for idx, move in enumerate(game.mainline_moves()):
 
             move_tensor = move_to_tensor(move)
             move_tensor[3] = 10
             move_tensor[0: 2] += 0.5
-            if board_collection[-1, 1, 0, 0] == 1:
+            if self.board_collection[-1, 1, 0, 0] == 1:
                 move_tensor[4] = base_eval
             else:
                 move_tensor[4] = -base_eval
@@ -179,7 +201,7 @@ class RuleChessDataset(Dataset):
                 legal_move_tensor[3] = 10
                 legal_move_tensor[0: 3] += 0.5
                 legal_move_tensor[5] += 0.5
-                if board_collection[-1, 1, 0, 0] == 1:
+                if self.board_collection[-1, 1, 0, 0] == 1:
                     legal_move_tensor[4] = 0
                 else:
                     legal_move_tensor[4] = 0
@@ -190,27 +212,25 @@ class RuleChessDataset(Dataset):
                 illegal_move[0, 3] = -100
                 legal_move_collection = torch.cat((legal_move_collection, illegal_move), 0)
 
-            legal_move_batch = torch.cat((legal_move_batch, legal_move_collection.unsqueeze(0)), 0)
+            self.legal_move_batch = torch.cat((self.legal_move_batch, legal_move_collection.unsqueeze(0)), 0)
 
-            move_collection = torch.cat((move_collection, move_tensor.unsqueeze(0)), 0)
+            # self.move_collection = torch.cat((self.move_collection, move_tensor.unsqueeze(0)), 0)
             board.push(move)
             board_new = board_to_tensor_full(board).unsqueeze(0)
-            board_collection = torch.cat((board_collection, board_new), 0)
+            self.board_collection = torch.cat((self.board_collection, board_new), 0)
 
         if result == '1-0' or result == '0-1':
             move_last = torch.tensor([0, 0, 0, 10, 0, 1.5]).unsqueeze(0)
         else:
             move_last = torch.tensor([0, 0, 0, 10, 0, -0.5]).unsqueeze(0)
-        move_last_after = torch.tensor([0, 0, 0, -100, 0, 0]).unsqueeze(0).repeat((1, 199, 1)) # Last move; resigning is qualified as checkmate here.
+        move_last_after = torch.tensor([0, 0, 0, -100, 0, 0]).unsqueeze(0).repeat(
+            (1, 199, 1))  # Last move; resigning is qualified as checkmate here.
         move_last_after = torch.cat((move_last.unsqueeze(0), move_last_after), 1)
-        legal_move_batch = torch.cat((legal_move_batch, move_last_after), 0)
+        self.legal_move_batch = torch.cat((self.legal_move_batch, move_last_after), 0)
 
-        # trying to figure out how to get rid of the data leaks
-        del board_new, illegal_move, legal_move_collection, move_collection, move_last, move_last_after, move_tensor, \
-            legal_move_tensor
-
-        return board_collection, legal_move_batch
+    def get_item_new(self, _):
+        pass
 
     def __len__(self):
-        return int(5e3)
+        return int(1e5)
 

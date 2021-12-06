@@ -5,9 +5,9 @@
     "arch": {
         "type": "AttChess",
         "args": {
-            "hidden_dim": 96,
+            "hidden_dim": 256,
             "num_heads": 4,
-            "num_encoder": 6,
+            "num_encoder": 10,
             "num_decoder": 2,
             "dropout": 0.02
         }
@@ -15,7 +15,7 @@
     "data_loader": {
         "type": "RuleAttentionChessLoader",
         "args":{
-            "batch_size": 1,
+            "batch_size": 2,
             "shuffle": true,
             "validation_split": 0.01,
             "num_workers": 1
@@ -24,7 +24,7 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-3,
+            "lr": 1e-4,
             "weight_decay": 1e-4,
             "amsgrad": true
         }
@@ -36,7 +36,7 @@
     "lr_scheduler": {
         "type": "StepLR",
         "args": {
-            "step_size": 100,
+            "step_size": 250,
             "gamma": 0.1
         }
     },
@@ -44,7 +44,7 @@
         "epochs": 500,
 
         "save_dir": "saved/",
-        "save_period": 10,
+        "save_period": 20,
         "verbosity": 2,
         
         "monitor": "min val_rule_teaching_loss",

@@ -135,3 +135,7 @@ saved/
 
 # Pyre type checker
 .pyre/
+
+# Ignore torch models
+*.pth
+*.pt

@@ -185,6 +185,27 @@ def push_torch(board_full_torch, move_torch):
     return board_full_torch_after
 
 
+def torch_to_move(move: torch.Tensor):
+    """Converts tensor to uci chess move"""
+    annotation_list = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
+    promotion_list = ['n', 'b', 'r', 'q']
+
+    # Convert numbers to square coordinates
+    uci_row_from = int(torch.floor(move[0] / 8))
+    uci_col_from = int(move[0] % 8)
+    uci_row_to = int(torch.floor(move[1] / 8))
+    uci_col_to = int(move[1] % 8)
+    promotion = int(torch.floor(move[2]))
+
+    # Convert to uci
+    uci_move = annotation_list[uci_col_from] + str(uci_row_from + 1) + annotation_list[uci_col_to] + str(uci_row_to + 1)
+    if 2 <= promotion <= 5:
+        uci_move += promotion_list[promotion - 2]
+
+    pychess_uci_move = chess.Move.from_uci(uci_move)
+    return pychess_uci_move
+
+
 def legal_move_mask(board: chess.Board):
     """Given a board, produce a masked logits matrix that considers only legal moves"""
     filter_mask = torch.zeros((64, 64)) - np.inf
@@ -193,6 +214,7 @@ def legal_move_mask(board: chess.Board):
         from_square = legal_move.from_square
         to_square = legal_move.to_square
         filter_mask[from_square, to_square] = 0
+
 
 def ensure_dir(dirname):
     dirname = Path(dirname)
@@ -213,7 +235,7 @@ def write_json(content, fname):
 
 
 def inf_loop(data_loader):
-    ''' wrapper function for endless data loader. '''
+    """''' wrapper function for endless data loader. '''"""
     for loader in repeat(data_loader):
         yield from loader
 

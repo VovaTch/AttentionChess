@@ -3,20 +3,23 @@ import collections
 import torch
 import chess
 
+import model.attchess as module_arch
 from model.attchess import AttChess
 from parse_config import ConfigParser
-from utils.util import board_to_tensor_full
+from utils.util import board_to_tensor_full, torch_to_move
+from utils.util import prepare_device
 
 
+@torch.no_grad()
 def main(config):
-
     logger = config.get_logger('Chess game')
+    device, _ = prepare_device(config['n_gpu'])
 
     # Load network
-    engine = AttChess()
-    checkpoint = torch.load(config.resume)
-    engine.load_state_dict(checkpoint['model'])
-    engine = engine.to(config.device)
+    engine = config.init_obj('arch', module_arch)
+    checkpoint = torch.load(config.resume, map_location=torch.device('cpu'))
+    engine.load_state_dict(checkpoint['state_dict'])
+    engine = engine.to(device)
     logger.info('Engine loaded')
 
     # Load chess board, choose side
@@ -39,35 +42,52 @@ def main(config):
         if player_turn:
             while True:
 
-                move_candidate = input(f'Please play a move as {side}:')
+                move_candidate_str = input(f'Please play a move as {side}:')
+                try:
+                    move_candidate_uci = board.parse_san(move_candidate_str).uci()
+                except:
+                    continue
+                move_candidate = chess.Move.from_uci(move_candidate_uci)
                 if move_candidate in board.legal_moves:
                     break
 
-            board.push_san(move_candidate)
+            board.push_san(move_candidate_str)
+            player_turn = not player_turn
 
         # Computer move
         else:
             # Run the network and get a move sample
-            board_tensor = board_to_tensor_full(board).to(config.device)
+            board_tensor = board_to_tensor_full(board).to(device)
             outputs_raw = engine(board_tensor.unsqueeze(0))
             outputs_raw = outputs_raw.squeeze(0)
-            outputs = outputs_raw[:, outputs_raw[:, 3] >= 0]
+            outputs = outputs_raw[outputs_raw[:, 3] >= -3.5]
             outputs_probs = outputs[:, 4]
-            sm = torch.nn.Softmax(dim=1)
-            outputs_probs = sm(outputs_probs)
+            outputs_probs = outputs_probs.softmax(dim=0)
             cat = torch.distributions.Categorical(outputs_probs)
-            sample = cat.sample()
 
+            # Force legal move
+            while True:
 
+                sample_idx = cat.sample()
+                sample = outputs[sample_idx, :]
 
+                # perform the move
+                try:
+                    sample_move = torch_to_move(sample)
+                except:
+                    continue
+                print(sample_move)
+                if sample_move in board.legal_moves:
+                    board.push(sample_move)
+                    break
+            player_turn = not player_turn
 
 
 if __name__ == '__main__':
-
     args = argparse.ArgumentParser(description='PyTorch Template')
     args.add_argument('-c', '--config', default='config_s1.json', type=str,
                       help='config file path (default: None)')
-    args.add_argument('-r', '--resume', default=None, type=str,
+    args.add_argument('-r', '--resume', default='attchess_moves_model.pth', type=str,
                       help='path to latest checkpoint (default: None)')
     args.add_argument('-d', '--device', default='cuda', type=str,
                       help='indices of GPUs to enable (default: all)')

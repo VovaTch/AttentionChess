@@ -51,12 +51,12 @@ class Trainer(BaseTrainer):
                 torch.cuda.empty_cache()
 
             board, moves = board.to(self.device), moves.to(self.device)
-            board = board.squeeze(0)  # TODO: Temp solution, if I can train with larger batch sizes it can be good
-            moves = moves.squeeze(0)
+            #board = board.squeeze(0)  # TODO: Temp solution, if I can train with larger batch sizes it can be good
+            #moves = moves.squeeze(0)
 
-            if board.size()[0] >= self.move_limit:
-                board = board[-self.move_limit:, :, :]
-                moves = moves[-self.move_limit:, :, :]
+            # if board.size()[0] >= self.move_limit:
+            #     board = board[-self.move_limit:, :, :]
+            #     moves = moves[-self.move_limit:, :, :]
 
             # print(board.size())
             # print(moves.size())
@@ -73,7 +73,7 @@ class Trainer(BaseTrainer):
             for met in self.metric_ftns:
                 self.train_metrics.update(met.__name__, met(output, moves))
 
-            if batch_idx + 1 % 5:
+            if batch_idx + 1 % 50:
                 self.logger.debug(f'Train Epoch: {epoch} {self._progress(batch_idx)} Loss: {loss.item():.6f}')
 
             if self.device == 'cuda':
@@ -105,8 +105,8 @@ class Trainer(BaseTrainer):
             for batch_idx, (board, moves) in enumerate(self.valid_data_loader):
 
                 board, moves = board.to(self.device), moves.to(self.device)
-                board = board.squeeze(0)  # TODO: Temp solution, if I can train with larger batch sizes it can be good
-                moves = moves.squeeze(0)
+                #board = board.squeeze(0)  # TODO: Temp solution, if I can train with larger batch sizes it can be good
+                #moves = moves.squeeze(0)
 
                 output = self.model(board)
                 loss = self.criterion(output, moves)
