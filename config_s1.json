@@ -7,15 +7,15 @@
         "args": {
             "hidden_dim": 256,
             "num_heads": 4,
-            "num_encoder": 10,
-            "num_decoder": 2,
+            "num_encoder": 8,
+            "num_decoder": 4,
             "dropout": 0.02
         }
     },
     "data_loader": {
         "type": "RuleAttentionChessLoader",
         "args":{
-            "batch_size": 2,
+            "batch_size": 8,
             "shuffle": true,
             "validation_split": 0.01,
             "num_workers": 1
@@ -24,14 +24,14 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-4,
+            "lr": 2e-5,
             "weight_decay": 1e-4,
             "amsgrad": true
         }
     },
     "loss": "rule_teaching_loss",
     "metrics": [
-        "rule_teaching_loss", "cardinality_loss"
+        "rule_teaching_loss", "cardinality_loss", "a_rule_precision", "a_rule_recall"
     ],
     "lr_scheduler": {
         "type": "StepLR",
@@ -44,7 +44,7 @@
         "epochs": 500,
 
         "save_dir": "saved/",
-        "save_period": 20,
+        "save_period": 10,
         "verbosity": 2,
         
         "monitor": "min val_rule_teaching_loss",

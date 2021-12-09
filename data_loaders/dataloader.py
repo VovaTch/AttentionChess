@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 from base import BaseDataLoader
 import numpy as np
 
-from utils.util import board_to_tensor, board_to_tensor_full, move_to_tensor, legal_move_mask
+from utils.util import board_to_tensor_full, move_to_tensor, legal_move_mask, board_to_embedding_coord
 from .game_roll import GameRoller
 
 
@@ -155,7 +155,7 @@ class RuleChessDataset(Dataset):
             self.load_game()
             self.game_length = self.board_collection.size()[0]
 
-        sampled_board = self.board_collection[self.follow_idx, :, :, :].clone()
+        sampled_board = self.board_collection[self.follow_idx, :, :].clone()
         sampled_legal_move_batch = self.legal_move_batch[self.follow_idx, :, :].clone()
 
         self.follow_idx += 1
@@ -180,35 +180,35 @@ class RuleChessDataset(Dataset):
         else:
             base_eval = 0
 
-        self.board_collection = board_to_tensor_full(board).unsqueeze(0)
+        self.board_collection = board_to_embedding_coord(board).unsqueeze(0)
         # move_collection = torch.zeros((0, 6))
-        self.legal_move_batch = torch.zeros((0, 200, 6))
+        self.legal_move_batch = torch.zeros((0, 200, 7))
 
         for idx, move in enumerate(game.mainline_moves()):
 
             move_tensor = move_to_tensor(move)
             move_tensor[3] = 10
             move_tensor[0: 2] += 0.5
-            if self.board_collection[-1, 1, 0, 0] == 1:
+            if self.board_collection[-1, 0, 0] < 18:
                 move_tensor[4] = base_eval
             else:
                 move_tensor[4] = -base_eval
 
-            legal_move_collection = torch.zeros((0, 6))
+            legal_move_collection = torch.zeros((0, 7))
             for legal_move in board.legal_moves:
 
                 legal_move_tensor = move_to_tensor(legal_move)
                 legal_move_tensor[3] = 10
                 legal_move_tensor[0: 3] += 0.5
-                legal_move_tensor[5] += 0.5
-                if self.board_collection[-1, 1, 0, 0] == 1:
+                legal_move_tensor[6] += 0.5
+                if self.board_collection[-1, 0, 0] < 18:
                     legal_move_tensor[4] = 0
                 else:
                     legal_move_tensor[4] = 0
                 legal_move_collection = torch.cat((legal_move_collection, legal_move_tensor.unsqueeze(0)), 0)
 
             while legal_move_collection.size()[0] < 200:
-                illegal_move = torch.zeros((1, 6))
+                illegal_move = torch.zeros((1, 7))
                 illegal_move[0, 3] = -100
                 legal_move_collection = torch.cat((legal_move_collection, illegal_move), 0)
 
@@ -216,14 +216,14 @@ class RuleChessDataset(Dataset):
 
             # self.move_collection = torch.cat((self.move_collection, move_tensor.unsqueeze(0)), 0)
             board.push(move)
-            board_new = board_to_tensor_full(board).unsqueeze(0)
+            board_new = board_to_embedding_coord(board).unsqueeze(0)
             self.board_collection = torch.cat((self.board_collection, board_new), 0)
 
         if result == '1-0' or result == '0-1':
-            move_last = torch.tensor([0, 0, 0, 10, 0, 1.5]).unsqueeze(0)
+            move_last = torch.tensor([0, 0, 0, 10, 0, 0, 1.5]).unsqueeze(0)
         else:
-            move_last = torch.tensor([0, 0, 0, 10, 0, -0.5]).unsqueeze(0)
-        move_last_after = torch.tensor([0, 0, 0, -100, 0, 0]).unsqueeze(0).repeat(
+            move_last = torch.tensor([0, 0, 0, 10, 0, 0, -0.5]).unsqueeze(0)
+        move_last_after = torch.tensor([0, 0, 0, -100, 0, 0, 0]).unsqueeze(0).repeat(
             (1, 199, 1))  # Last move; resigning is qualified as checkmate here.
         move_last_after = torch.cat((move_last.unsqueeze(0), move_last_after), 1)
         self.legal_move_batch = torch.cat((self.legal_move_batch, move_last_after), 0)
@@ -232,5 +232,5 @@ class RuleChessDataset(Dataset):
         pass
 
     def __len__(self):
-        return int(1e5)
+        return int(500)
 

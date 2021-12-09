@@ -6,7 +6,7 @@ import chess
 import model.attchess as module_arch
 from model.attchess import AttChess
 from parse_config import ConfigParser
-from utils.util import board_to_tensor_full, torch_to_move
+from utils.util import board_to_embedding_coord, torch_to_move
 from utils.util import prepare_device
 
 
@@ -57,11 +57,11 @@ def main(config):
         # Computer move
         else:
             # Run the network and get a move sample
-            board_tensor = board_to_tensor_full(board).to(device)
+            board_tensor = board_to_embedding_coord(board).to(device)
             outputs_raw = engine(board_tensor.unsqueeze(0))
             outputs_raw = outputs_raw.squeeze(0)
-            outputs = outputs_raw[outputs_raw[:, 3] >= -3.5]
-            outputs_probs = outputs[:, 4]
+            outputs = outputs_raw[outputs_raw[:, 3] >= outputs_raw[:, 4]]
+            outputs_probs = outputs[:, 5]
             outputs_probs = outputs_probs.softmax(dim=0)
             cat = torch.distributions.Categorical(outputs_probs)
 

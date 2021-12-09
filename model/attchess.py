@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import chess
+import math
+from positional_encodings import PositionalEncoding2D
 
 from base.base_model import BaseModel
 
@@ -13,18 +15,24 @@ class AttChess(BaseModel):
     def __init__(self, hidden_dim=256, num_heads=8, num_encoder=15, num_decoder=2, dropout=0.1):
         super().__init__()
 
-        self.transformer = nn.Transformer(hidden_dim, num_heads, num_encoder, num_decoder)
+        self.transformer = nn.Transformer(hidden_dim, num_heads, num_encoder, num_decoder, dropout=0.0)
         self.move_embedding = nn.Parameter(torch.rand(200, hidden_dim))
         self.hidden_dim = hidden_dim
 
-        self.backbone_embedding = MLP(5, hidden_dim, hidden_dim, 2, dropout=0)
-        self.head_embedding = MLP(hidden_dim, hidden_dim, 6, 5, dropout=0)
+        self.positional_embedding = nn.Embedding(64, hidden_dim)
+
+        self.backbone_embedding = nn.Embedding(36, hidden_dim)
+        self.head_embedding = MLP(hidden_dim, hidden_dim, 6, 5, dropout=0.0)
 
     def forward(self, boards):
-        """Input: tensor board representation of Nx5x8x8, output is a move tensor Nx6, for now ignore the resign flag"""
-        flatten_boards = boards.flatten(2, 3)
-        embedded_squares = self.backbone_embedding(flatten_boards.permute(0, 2, 1))
-        hs = self.transformer(embedded_squares.permute(1, 0, 2),
+        """Input: chessboard embedding index input"""
+        # embedding + pos embedding
+        hidden_embedding = self.backbone_embedding(boards)
+        flat_pos_embedding = self.positional_embedding.weight.unsqueeze(0).repeat(boards.size()[0], 1, 1)
+        transformer_input = hidden_embedding.flatten(1, 2) + flat_pos_embedding
+
+        # transformer encoder-decoder and outputs
+        hs = self.transformer(transformer_input.permute(1, 0, 2),
                               self.move_embedding.unsqueeze(0).repeat((boards.size()[0], 1, 1)).permute(1, 0, 2))
         move_output = self.head_embedding(hs.permute(1, 0, 2))
 

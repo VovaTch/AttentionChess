@@ -3,6 +3,7 @@ import numpy as np
 
 from utils.matcher import match_moves
 from model.loss import move_lineup
+from model.loss import rule_teaching_loss as rtl
 
 
 def des_boost_l1(board, turns, predicted_logits, played_logits):
@@ -69,43 +70,8 @@ def smile_pass(output, target):
 @torch.no_grad()
 def rule_teaching_loss(pred_moves: torch.Tensor, target_moves: torch.Tensor, **kwargs):
     """Loss specifically for teaching the net how to play chess and when to resign."""
+    return rtl(pred_moves, target_moves)
 
-    if 'eos_loss' in kwargs:
-        eos_loss = kwargs['eos_loss']
-    else:
-        eos_loss = 0.25
-
-    if 'moves_coef' in kwargs:
-        moves_coef = kwargs['moves_coef']
-    else:
-        moves_coef = 5
-
-    matching_indices = match_moves(pred_moves, target_moves)
-    lined_up_preds, lined_up_targets = move_lineup(pred_moves, target_moves, matching_indices)
-    lined_up_preds_legals = lined_up_preds[:, 3]
-    lined_up_targets_legals = lined_up_targets[:, 3]
-
-    # Both of this line for the kinda messy legal move flag
-    lined_up_targets_legals[lined_up_targets_legals == 10] = 1
-    lined_up_targets_legals[lined_up_targets_legals == -100] = 0
-
-    # BCE with logits loss, more numerically stable than classic BCE #TODO: CHECK HOW I DID IT IN ADJDETR
-    weight_vector = torch.ones(lined_up_targets_legals.size()[0]).to(pred_moves.device)
-    weight_vector[lined_up_targets_legals == 1] = eos_loss
-    bceloss = torch.nn.BCEWithLogitsLoss(weight=weight_vector)
-    loss_bce = bceloss(lined_up_preds_legals, lined_up_targets_legals)
-
-    # matching losses on moves; ignores the move quality in this loss
-    l1_loss = torch.nn.L1Loss()
-    lined_up_pred_moves = lined_up_preds[:, [0, 1, 2, 5]]
-    lined_up_pred_moves = lined_up_pred_moves[lined_up_targets_legals == 1]
-    lined_up_target_moves = lined_up_targets[:, [0, 1, 2, 5]]
-    lined_up_target_moves = lined_up_target_moves[lined_up_targets_legals == 1]
-    loss = l1_loss(lined_up_pred_moves, lined_up_target_moves)
-
-    # Total loss
-    loss_tot = loss + moves_coef * loss_bce
-    return loss_tot
 
 
 @torch.no_grad()
@@ -115,6 +81,43 @@ def cardinality_loss(pred_moves, target_moves):
     pred_flat = pred_moves.flatten(0, 1)
     target_flat = target_moves.flatten(0, 1)
     num_targets = torch.sum(target_flat[:, 3] == 10)
-    num_preds = torch.sum(pred_flat[:, 3] >= 0)
+    num_preds = torch.sum(pred_flat[:, 3] > 0)
     cardinality_error = np.abs(int(num_targets) - int(num_preds)) / num_of_moves
     return cardinality_error
+
+
+@torch.no_grad()
+def a_rule_precision(pred_moves, target_moves):
+    """Average precision for the rules"""
+    pred_flat = pred_moves.flatten(0, 1).unsqueeze(0)
+    target_flat = target_moves.flatten(0, 1).unsqueeze(0)
+
+    tp_count = 0
+    fp_count = 0
+
+    matched_idx = match_moves(pred_flat, target_flat)
+    for idx_pair in matched_idx[0]:
+        if pred_flat[0, int(idx_pair[0]), 3] > 0 and target_flat[0, int(idx_pair[1]), 3] == 10:
+            tp_count += 1
+        elif pred_flat[0, int(idx_pair[0]), 3] > 0 and target_flat[0, int(idx_pair[1]), 3] == -100:
+            fp_count += 1
+
+    return tp_count / (tp_count + fp_count + 1e-5)
+
+@torch.no_grad()
+def a_rule_recall(pred_moves, target_moves):
+    """Average precision for the rules"""
+    pred_flat = pred_moves.flatten(0, 1).unsqueeze(0)
+    target_flat = target_moves.flatten(0, 1).unsqueeze(0)
+
+    tp_count = 0
+
+    matched_idx = match_moves(pred_flat, target_flat)
+    for idx_pair in matched_idx[0]:
+        if pred_flat[0, int(idx_pair[0]), 3] > 0 and target_flat[0, int(idx_pair[1]), 3] == 10:
+            tp_count += 1
+
+    total_det_count = torch.sum(target_flat[0, :, 3] == 10)
+
+    return tp_count / (total_det_count + 1e-5)
+

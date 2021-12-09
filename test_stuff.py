@@ -4,7 +4,8 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 
-from utils.util import board_to_tensor, board_to_tensor_full, legal_move_mask, move_to_tensor, push_torch
+from utils.util import board_to_tensor, board_to_tensor_full, legal_move_mask, move_to_tensor, push_torch, \
+    board_to_embedding_coord
 from utils.matcher import match_moves
 from model.loss import rule_teaching_loss
 from model.attchess import AttChess
@@ -17,16 +18,17 @@ def main():
 
     board = chess.Board()
     board_torch = board_to_tensor_full(board)
+    board_embed = board_to_embedding_coord(board)
     loader = RuleAttentionChessLoader(batch_size=1)
     attchess = AttChess()
     attchess = attchess.eval().to('cuda')
 
     for idx, (boards, moves) in enumerate(loader):
         print(moves)
-        outputs = attchess(boards.squeeze(0).to('cuda'))
+        outputs = attchess(boards.to('cuda'))
         break
 
-    loss = rule_teaching_loss(outputs, moves.squeeze(0).to('cuda'))
+    loss = rule_teaching_loss(outputs, moves.to('cuda'))
 
     print(1111)
 
