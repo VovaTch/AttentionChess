@@ -12,8 +12,7 @@ def match_moves(output_moves: torch.Tensor, target_moves: torch.Tensor):
 
     for idx_board in range(output_moves.size()[0]):
 
-        target_moves_legal = target_moves[idx_board, target_moves[idx_board, :, 3] == 10, :]
-        board_pair_idx_list = [idx_target for idx_target in torch.where(target_moves[idx_board, :, 3] == 10)]
+        target_moves_legal = target_moves[idx_board, target_moves[idx_board, :, 3] == 0, :]
 
         # Create a large coordinate block
         target_coor = target_moves_legal[:, :2]
@@ -33,6 +32,7 @@ def match_moves(output_moves: torch.Tensor, target_moves: torch.Tensor):
             norm_matrix = torch.cat((norm_matrix, norm_column.unsqueeze(1)), 1)
 
         output_matches = linear_sum_assignment(norm_matrix.detach().cpu())
+        output_matches = np.array(output_matches)
         output_matches_torch = torch.Tensor(output_matches).permute(1, 0).int().to(norm_matrix.device)
 
         pair_idx_list.append(output_matches_torch)

@@ -82,7 +82,7 @@ def move_to_tensor(move: chess.Move):
     move_quality = 0
     resign_flag = 0  # 1 for resign, -1 for draw
 
-    move_torch = torch.Tensor([from_square, to_square, promotion, move_legality_legal,
+    move_torch = torch.Tensor([from_square/64, to_square/64, promotion, move_legality_legal,
                                move_quality, resign_flag]).float()
 
     return move_torch
@@ -108,6 +108,29 @@ def torch_to_move(move: torch.Tensor):
 
     pychess_uci_move = chess.Move.from_uci(uci_move)
     return pychess_uci_move
+
+
+def move_to_coordinate(move: chess.Move):
+    from_square = move.from_square
+    to_square = move.to_square
+
+    from_square_coor = (int(from_square % 8), int(from_square / 8))
+    to_square_coor = (int(to_square % 8), int(to_square / 8))
+
+    # Handle promotions
+    if move.promotion is not None:
+        direction = from_square_coor[0] - to_square_coor[0]  # 1 for left, -1 for right
+        promotion_symbol = move.promotion
+        if promotion_symbol is chess.QUEEN:
+            to_square = 65 + direction
+        elif promotion_symbol is chess.ROOK:
+            to_square = 68 + direction
+        elif promotion_symbol is chess.BISHOP:
+            to_square = 71 + direction
+        else:
+            to_square = 74 + direction
+
+    return torch.tensor([int(from_square), int(to_square)])
 
 
 def legal_move_mask(board: chess.Board):

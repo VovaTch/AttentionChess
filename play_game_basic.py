@@ -19,7 +19,7 @@ def main(config):
     engine = config.init_obj('arch', module_arch)
     checkpoint = torch.load(config.resume, map_location=torch.device('cpu'))
     engine.load_state_dict(checkpoint['state_dict'])
-    engine = engine.to(device)
+    engine = engine.to(device).eval()
     logger.info('Engine loaded')
 
     # Load chess board, choose side
@@ -60,7 +60,7 @@ def main(config):
             board_tensor = board_to_embedding_coord(board).to(device)
             outputs_raw = engine(board_tensor.unsqueeze(0))
             outputs_raw = outputs_raw.squeeze(0)
-            outputs = outputs_raw[outputs_raw[:, 3] >= outputs_raw[:, 4]]
+            outputs = outputs_raw[outputs_raw[:, 3] >= 0]
             outputs_probs = outputs[:, 5]
             outputs_probs = outputs_probs.softmax(dim=0)
             cat = torch.distributions.Categorical(outputs_probs)
@@ -87,7 +87,7 @@ if __name__ == '__main__':
     args = argparse.ArgumentParser(description='PyTorch Template')
     args.add_argument('-c', '--config', default='config_s1.json', type=str,
                       help='config file path (default: None)')
-    args.add_argument('-r', '--resume', default='attchess_moves_model.pth', type=str,
+    args.add_argument('-r', '--resume', default='model_best.pth', type=str,
                       help='path to latest checkpoint (default: None)')
     args.add_argument('-d', '--device', default='cuda', type=str,
                       help='indices of GPUs to enable (default: all)')
