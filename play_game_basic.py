@@ -58,7 +58,9 @@ def main(config):
         else:
             # Run the network and get a move sample
             board_tensor = board_to_embedding_coord(board).to(device)
-            outputs_raw = engine(board_tensor.unsqueeze(0))
+            outputs_legal, outputs_class_vec = engine(board_tensor.unsqueeze(0))
+
+
             outputs_raw = outputs_raw.squeeze(0)
             outputs = outputs_raw[outputs_raw[:, 3] >= 0]
             outputs_probs = outputs[:, 5]

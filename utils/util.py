@@ -88,33 +88,50 @@ def move_to_tensor(move: chess.Move):
     return move_torch
 
 
-def torch_to_move(move: torch.Tensor):
-    """Converts tensor to uci chess move"""
-    move[0: 2] *= 64
-    annotation_list = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
-    promotion_list = ['n', 'b', 'r', 'q']
+def word_to_move(word):
 
-    # Convert numbers to square coordinates
-    uci_row_from = int(torch.floor(move[0] / 8))
-    uci_col_from = int(move[0] % 8)
-    uci_row_to = int(torch.floor(move[1] / 8))
-    uci_col_to = int(move[1] % 8)
-    promotion = int(torch.floor(move[2]))
+    coor_col = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
+    promotion_char = ['n', 'b', 'r', 'q']
 
-    # Convert to uci
-    uci_move = annotation_list[uci_col_from] + str(uci_row_from + 1) + annotation_list[uci_col_to] + str(uci_row_to + 1)
-    if 2 <= promotion <= 5:
-        uci_move += promotion_list[promotion - 2]
+    # Decompose to individual move coordinates
+    coordinates_from_to = (int(word % 64), np.floor(word / 64))
+    coordinates_from = (int(coordinates_from_to[0] % 8), np.floor(coordinates_from_to[0] / 8))  # 0 is a,b,c... 1 is numbers
 
-    pychess_uci_move = chess.Move.from_uci(uci_move)
-    return pychess_uci_move
+    coor_char_from = coor_col[coordinates_from[0]] + str(coordinates_from[1] + 1)
 
+    # If not promoting
+    if coordinates_from_to[1]< 64:
+        coordinates_to = (int(coordinates_from_to[1] % 8), np.floor(coordinates_from_to[1] / 8))
+        coor_char_to = coor_col[coordinates_to[0]] + str(coordinates_to[1] + 1)
+
+    # If promoting
+    else:
+        if 64 <= coordinates_from_to[1] < 67:
+            coor_shift = 65 - coordinates_from_to[1]
+            coor_up_down = 0 if coordinates_from[1] == 1 else 7
+            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1)
+        elif 67 <= coordinates_from_to[1] < 70:
+            coor_shift = 68 - coordinates_from_to[1]
+            coor_up_down = 0 if coordinates_from[1] == 1 else 7
+            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1)
+        elif 70 <= coordinates_from_to[1] < 73:
+            coor_shift = 71 - coordinates_from_to[1]
+            coor_up_down = 0 if coordinates_from[1] == 1 else 7
+            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1)
+        else:
+            coor_shift = 74 - coordinates_from_to[1]
+            coor_up_down = 0 if coordinates_from[1] == 1 else 7
+            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1)
+
+    move = chess.Move.from_uci(coor_char_from + coor_char_to)
+
+    return move
 
 def move_to_coordinate(move: chess.Move):
     from_square = move.from_square
     to_square = move.to_square
 
-    from_square_coor = (int(from_square % 8), int(from_square / 8))
+    from_square_coor = (int(from_square % 8), int(from_square / 8))  # 0 for a,b,c, 1 for numbers
     to_square_coor = (int(to_square % 8), int(to_square / 8))
 
     # Handle promotions

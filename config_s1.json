@@ -15,7 +15,7 @@
     "data_loader": {
         "type": "RuleAttentionChessLoader",
         "args":{
-            "batch_size": 1,
+            "batch_size": 4,
             "shuffle": true,
             "validation_split": 0.01,
             "num_workers": 1
@@ -24,7 +24,7 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-7,
+            "lr": 1e-6,
             "weight_decay": 1e-4,
             "amsgrad": true
         }
@@ -34,17 +34,16 @@
         "type": "Criterion",
         "args": {
             "eos_coef": 0.4,
-            "losses": ["labels", "cardinality", "cardinality_direction", "move", "mse_score"]
+            "losses": ["labels", "cardinality", "cardinality_direction", "mse_score"]
         }
     },
     "loss_weights":
     {
         "loss_labels": 5,
-        "loss_move": 2,
         "loss_score": 0
     },
     "metrics": [
-        "mse_score_loss", "cardinality_loss", "cardinality_loss_direction", "move_loss", "label_loss",
+        "mse_score_loss", "cardinality_loss", "cardinality_loss_direction", "label_loss",
         "a_rule_precision", "a_rule_recall"
     ],
     "lr_scheduler": {

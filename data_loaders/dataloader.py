@@ -214,6 +214,8 @@ class RuleChessDataset(Dataset):
             elif score_factor == -1:
                 quality_vector[0, matching_idx] = 0
 
+            quality_vector[0, :-1] = quality_vector[0, :-1] / (torch.sum(quality_vector[0, :-1]) + 1e-6)
+
             # self.move_collection = torch.cat((self.move_collection, move_tensor.unsqueeze(0)), 0)
             board.push(move)
             board_new = board_to_embedding_coord(board).unsqueeze(0)
@@ -241,6 +243,8 @@ class RuleChessDataset(Dataset):
             quality_vector[0, self.query_word_len - 1] = 1.5
         else:
             quality_vector[0, self.query_word_len - 1] = -0.5
+
+        quality_vector[0, :-1] = quality_vector[0, :-1] / (torch.sum(quality_vector[0, :-1]) + 1e-6)
 
         # concat also legals + quality
         self.legal_move_batch = torch.cat((self.legal_move_batch, legal_move_mat), 0)

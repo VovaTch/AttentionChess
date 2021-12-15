@@ -9,47 +9,34 @@ from model.loss import Criterion
 
 
 @torch.no_grad()
-def mse_score_loss(pred_moves, target_moves, criterion: Criterion):
+def mse_score_loss(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+                   target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor, criterion: Criterion):
     """Goes to the criterion for the loss"""
-    matching_indices = match_moves(pred_moves, target_moves)
-    lined_up_preds, lined_up_targets = move_lineup(pred_moves, target_moves, matching_indices)
-    loss = criterion.mse_score_loss(lined_up_preds, lined_up_targets)
+    loss = criterion.mse_score_loss(pred_legal_mat, pred_quality_vec, target_legal_mat, target_quality_vec)
     return loss['loss_score']
 
 
 @torch.no_grad()
-def label_loss(pred_moves, target_moves, criterion: Criterion):
+def label_loss(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+               target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor, criterion: Criterion):
     """Goes to the criterion for the loss"""
-    matching_indices = match_moves(pred_moves, target_moves)
-    lined_up_preds, lined_up_targets = move_lineup(pred_moves, target_moves, matching_indices)
-    loss = criterion.label_loss(lined_up_preds, lined_up_targets)
+    loss = criterion.label_loss(pred_legal_mat, pred_quality_vec, target_legal_mat, target_quality_vec)
     return loss['loss_labels']
 
 
 @torch.no_grad()
-def move_loss(pred_moves, target_moves, criterion: Criterion):
+def cardinality_loss(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+                     target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor, criterion: Criterion):
     """Goes to the criterion for the loss"""
-    matching_indices = match_moves(pred_moves, target_moves)
-    lined_up_preds, lined_up_targets = move_lineup(pred_moves, target_moves, matching_indices)
-    loss = criterion.move_loss(lined_up_preds, lined_up_targets)
-    return loss['loss_move']
-
-
-@torch.no_grad()
-def cardinality_loss(pred_moves, target_moves, criterion: Criterion):
-    """Goes to the criterion for the loss"""
-    matching_indices = match_moves(pred_moves, target_moves)
-    lined_up_preds, lined_up_targets = move_lineup(pred_moves, target_moves, matching_indices)
-    loss = criterion.cardinality_loss(lined_up_preds, lined_up_targets)
+    loss = criterion.cardinality_loss(pred_legal_mat, pred_quality_vec, target_legal_mat, target_quality_vec)
     return loss['loss_cardinality']
 
 
 @torch.no_grad()
-def cardinality_loss_direction(pred_moves, target_moves, criterion: Criterion):
+def cardinality_loss_direction(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+                               target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor, criterion: Criterion):
     """Goes to the criterion for the loss"""
-    matching_indices = match_moves(pred_moves, target_moves)
-    lined_up_preds, lined_up_targets = move_lineup(pred_moves, target_moves, matching_indices)
-    loss = criterion.cardinality_loss_direction(lined_up_preds, lined_up_targets)
+    loss = criterion.cardinality_loss_direction(pred_legal_mat, pred_quality_vec, target_legal_mat, target_quality_vec)
     return loss['loss_cardinality_direction']
 
 
@@ -60,38 +47,40 @@ def smile_pass(output, target):
 
 
 @torch.no_grad()
-def a_rule_precision(pred_moves, target_moves, *args):
+def a_rule_precision(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+                     target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor, *args):
     """Average precision for the rules"""
 
-    matching_indices = match_moves(pred_moves, target_moves)
-    lined_up_preds, lined_up_targets = move_lineup(pred_moves, target_moves, matching_indices)
+    flatten_pred_legal_mat = pred_legal_mat.flatten()
+    flatten_target_legal_mat = target_legal_mat.flatten()
 
     tp_count = 0
     fp_count = 0
 
-    for pred_ind, target_ind in zip(lined_up_preds, lined_up_targets):
-        if pred_ind[3] > 0 and target_ind[3] == 0:
+    for pred_ind, target_ind in zip(flatten_pred_legal_mat, flatten_target_legal_mat):
+        if pred_ind > 0 and target_ind == 1:
             tp_count += 1
-        elif pred_ind[3] > 0 and target_ind[3] == 1:
+        elif pred_ind > 0 and target_ind == 0:
             fp_count += 1
 
     return tp_count / (tp_count + fp_count + 1e-5)
 
 
 @torch.no_grad()
-def a_rule_recall(pred_moves, target_moves, *args):
+def a_rule_recall(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+                  target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor, *args):
     """Average precision for the rules"""
 
-    matching_indices = match_moves(pred_moves, target_moves)
-    lined_up_preds, lined_up_targets = move_lineup(pred_moves, target_moves, matching_indices)
+    flatten_pred_legal_mat = pred_legal_mat.flatten()
+    flatten_target_legal_mat = target_legal_mat.flatten()
 
     tp_count = 0
     fn_count = 0
 
-    for pred_ind, target_ind in zip(lined_up_preds, lined_up_targets):
-        if pred_ind[3] > 0 and target_ind[3] == 0:
+    for pred_ind, target_ind in zip(flatten_pred_legal_mat, flatten_target_legal_mat):
+        if pred_ind > 0 and target_ind == 1:
             tp_count += 1
-        elif pred_ind[3] <= 0 and target_ind[3] == 0:
+        elif pred_ind <= 0 and target_ind == 1:
             fn_count += 1
 
     return tp_count / (tp_count + fn_count + 1e-5)

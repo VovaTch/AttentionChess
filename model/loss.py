@@ -13,137 +13,117 @@ def test_loss(pred_moves: torch.Tensor, target_moves: torch.Tensor):
 # TODO: a more ordered criteria that encompasses everything. Fix moves tensor back to 6
 class Criterion(torch.nn.Module):
 
-    def __init__(self, losses, eos_coef=0.25):
+    def __init__(self, losses, eos_coef=0.25, f_loss_gamma=2):
         super().__init__()
         self.eos_coef = eos_coef
+        self.f_loss_gamma = f_loss_gamma
         self.losses = losses
         self.batch_size = 0
         self.query_size = 0
 
-    def mse_score_loss(self, lined_up_preds: torch.Tensor, lined_up_targets: torch.Tensor):
+    def mse_score_loss(self, pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+                       target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor):
         """Score for the move strength. The move strength should be drawn from outside, or another class"""
 
-        # Collecting all general probability vector loss of everything
-        loss_ce_gen = 0
-        for idx_batch in range(self.batch_size):
-            prob_vec_pred = lined_up_preds[self.query_size * idx_batch: self.query_size * (1 + idx_batch), :]
-            prob_vec_target = lined_up_targets[self.query_size * idx_batch: self.query_size * (1 + idx_batch), :]
-            legal_lined_up_preds = prob_vec_pred[prob_vec_target[:, 3] == 0]
-            legal_lined_up_targets = prob_vec_target[prob_vec_target[:, 3] == 0]
-            prob_target_filtered = (legal_lined_up_targets[:, 4] + 1e-6) / \
-                                   torch.sum(legal_lined_up_targets[:, 4] + 1e-6)
-            loss_ce_gen += cross_entropy_gen(legal_lined_up_preds[:, 4], prob_target_filtered) / self.batch_size
+        lined_up_pred_quality = move_lineup(pred_legal_mat, pred_quality_vec, target_legal_mat)
+        mse_loss = torch.nn.MSELoss()
+        loss_ce_gen = cross_entropy_gen(lined_up_pred_quality, target_quality_vec)
+        loss_mse_gen = mse_loss(lined_up_pred_quality[:, -1], target_quality_vec[:, -1])
 
-        loss = {'loss_score': loss_ce_gen}
+        loss = {'loss_score': loss_ce_gen + loss_mse_gen}
         return loss
 
-    def label_loss(self, lined_up_preds: torch.Tensor, lined_up_targets: torch.Tensor):
+    def label_loss(self,pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+                   target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor):
         """Loss function for the matching of moves. Uses l1 loss for matching the moves.
         Later, the prediction need to be multiplied by 64"""
 
-        lined_up_preds_legals = lined_up_preds[:, 3]
-        # lined_up_preds_legals[:, 1] = 0
-        lined_up_targets_legals = lined_up_targets[:, 3]
-
-        # Both of this line for the kinda messy legal move flag
-        # lined_up_targets_legals[lined_up_targets_legals == 10] = 0
-        # lined_up_targets_legals[lined_up_targets_legals == -100] = 1
-        lined_up_targets_legals = lined_up_targets_legals.to(dtype=torch.int64)
-
-        # Focal loss loss, more numerically stable than classic BCE #TODO: CHECK HOW I DID IT IN ADJDETR
-        # weight_vector = torch.tensor([1, self.eos_coef]).to(lined_up_preds.device)
-        # Floss = FocalLoss(weight=weight_vector, reduction='mean')
-        # loss_ce = Floss(lined_up_preds_legals, lined_up_targets_legals)
-        weight_vector = torch.ones(lined_up_preds.size()[0]).to(lined_up_preds.device)
-        weight_vector[lined_up_targets_legals == 1] = self.eos_coef
-        crit = torch.nn.BCEWithLogitsLoss(weight=weight_vector)
-        loss_ce = crit(-lined_up_preds_legals.float(), lined_up_targets_legals.float())
+        pred_legal_mat_flattened = pred_legal_mat.flatten()
+        target_legal_mat_flattened = target_legal_mat.flatten()
+        weight = torch.ones(target_legal_mat_flattened.size()).to(pred_legal_mat.device)
+        weight[target_legal_mat_flattened == 0] = self.eos_coef
+        crit = torch.nn.BCEWithLogitsLoss(weight=weight)
+        loss_ce = crit(pred_legal_mat_flattened, target_legal_mat_flattened)
 
         loss = {'loss_labels': loss_ce}
         return loss
 
-    def move_loss(self, lined_up_preds: torch.Tensor, lined_up_targets: torch.Tensor):
-        """Loss function for the legality of moves. Uses focal loss with gamma=2 as a default."""
-
-        lined_up_targets_legals = lined_up_targets[:, 3]
-
-        # Both of this line for the kinda messy legal move flag
-        lined_up_targets_legals[lined_up_targets_legals == 10] = 0
-        lined_up_targets_legals[lined_up_targets_legals == -100] = 1
-        lined_up_targets_legals = lined_up_targets_legals.to(dtype=torch.int64)
-
-        # matching losses on moves; ignores the move quality in this loss
-        mse_loss = torch.nn.MSELoss()
-        lined_up_pred_moves = lined_up_preds[:, [0, 1, 2, 5]]
-        lined_up_pred_moves = lined_up_pred_moves[lined_up_targets_legals == 0]
-        lined_up_target_moves = lined_up_targets[:, [0, 1, 2, 5]]
-        lined_up_target_moves = lined_up_target_moves[lined_up_targets_legals == 0]
-        loss_move = mse_loss(lined_up_pred_moves, lined_up_target_moves)
-
-        loss = {'loss_move': loss_move}
-
-        return loss
-
     @torch.no_grad()
-    def cardinality_loss(self, pred_moves: torch.Tensor, target_moves: torch.Tensor):
+    def cardinality_loss(self, pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+                         target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor):
         """From DETR, cardinality error is a great representive for the detection of the correct bounding boxes."""
 
-        num_targets = torch.sum(target_moves[:, 3] == 0)
-        num_preds = torch.sum(pred_moves[:, 3] > 0)
+        num_targets = torch.sum(target_legal_mat == 1)
+        num_preds = torch.sum(pred_legal_mat > 0)
         cardinality_error = np.abs(int(num_targets) - int(num_preds)) / self.batch_size
 
         loss = {'loss_cardinality': cardinality_error}
         return loss
 
     @torch.no_grad()
-    def cardinality_loss_direction(self, pred_moves: torch.Tensor, target_moves: torch.Tensor):
+    def cardinality_loss_direction(self, pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+                                   target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor):
         """From DETR, cardinality error is a great representive for the detection of the correct bounding boxes."""
 
-        num_targets = torch.sum(target_moves[:, 3] == 0)
-        num_preds = torch.sum(pred_moves[:, 3] > 0)
+        num_targets = torch.sum(target_legal_mat == 1)
+        num_preds = torch.sum(pred_legal_mat > 0)
         cardinality_error = -(int(num_targets) - int(num_preds)) / self.batch_size
 
         loss = {'loss_cardinality_direction': cardinality_error}
         return loss
 
-    def get_loss(self, loss, lined_up_preds, lined_up_targets, matching_indices):
+    def get_loss(self, loss, pred_legal_mat, pred_quality_vec, target_legal_mat, target_quality_vec):
         loss_map = {
             'labels': self.label_loss,
             'cardinality': self.cardinality_loss,
             'cardinality_direction': self.cardinality_loss_direction,
-            'move': self.move_loss,
             'mse_score': self.mse_score_loss
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
-        return loss_map[loss](lined_up_preds, lined_up_targets)
+        return loss_map[loss](pred_legal_mat, pred_quality_vec, target_legal_mat, target_quality_vec)
 
-    def forward(self, pred_moves: torch.Tensor, target_moves: torch.Tensor):
+    def forward(self, pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+                target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor):
 
-        self.batch_size = pred_moves.size()[0]
-        self.query_size = pred_moves.size()[1]
-
-        matching_indices = match_moves(pred_moves, target_moves)
-        lined_up_preds, lined_up_targets = move_lineup(pred_moves, target_moves, matching_indices)
+        self.batch_size = pred_legal_mat.size()[0]
+        self.query_size = pred_legal_mat.size()[1]
 
         losses = {}
         for loss in self.losses:
-            losses.update(self.get_loss(loss, lined_up_preds, lined_up_targets, matching_indices))
+            losses.update(self.get_loss(loss, pred_legal_mat, pred_quality_vec, target_legal_mat, target_quality_vec))
 
         return losses
 
 
-def move_lineup(pred_moves: torch.Tensor, target_moves: torch.Tensor, matching_indices):
+def move_lineup(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
+                target_legal_mat: torch.Tensor):
     """A utility function for loss computation; lines up predicted moves with matched targets"""
-    lined_up_targets = torch.zeros((0, 6)).to(pred_moves.device)
-    lined_up_preds = pred_moves.flatten(0, 1)
-    for img_idx, match_idx in enumerate(matching_indices):
-        lined_up_targets_img = torch.Tensor([0, 0, 0, 1, 0, 0]).repeat((pred_moves.size()[1], 1)).\
-            to(pred_moves.device)
-        for ind_match in match_idx:
-            lined_up_targets_img[ind_match[0], :] = target_moves[img_idx, ind_match[1], :]
-        lined_up_targets = torch.cat((lined_up_targets, lined_up_targets_img), 0)
 
-    return lined_up_preds, lined_up_targets
+    lined_up_all_preds = torch.zeros((0, pred_quality_vec.size()[1])).to(pred_quality_vec.device)
+
+    for batch_idx in range(pred_legal_mat.size()[0]):
+
+        pred_q_lined = torch.zeros((pred_quality_vec.size()[1])).to(pred_quality_vec.device) - 1e6
+
+        t_legal_move_mat = target_legal_mat[batch_idx, :, :] == 1
+        t_legal_move_idx = torch.nonzero(t_legal_move_mat)
+        t_legal_move_word = t_legal_move_idx[:, 0] + 64 * t_legal_move_idx[:, 1]
+
+        p_legal_move_mat = pred_legal_mat[batch_idx, :, :] > 0
+        p_legal_move_idx = torch.nonzero(p_legal_move_mat)
+        p_legal_move_word = p_legal_move_idx[:, 0] + 64 * p_legal_move_idx[:, 1]
+
+        for t_idx, t_legal in enumerate(t_legal_move_word):
+            if t_legal in p_legal_move_word:
+                p_finder = p_legal_move_word == t_legal
+                p_idx = torch.nonzero(p_finder)
+                if p_idx < pred_quality_vec.size()[1] - 1:
+                    pred_q_lined[t_idx] = pred_quality_vec[batch_idx, p_idx]
+
+        pred_q_lined[pred_quality_vec.size()[1] - 1] = pred_quality_vec[batch_idx, pred_quality_vec.size()[1] - 1]
+        lined_up_all_preds = torch.cat((lined_up_all_preds, pred_q_lined.unsqueeze(0)), 0)
+
+    return lined_up_all_preds
 
 
 class FocalLoss(torch.nn.Module):
@@ -170,5 +150,7 @@ class FocalLoss(torch.nn.Module):
 
 def cross_entropy_gen(input, target):
     """Implementing a general cross entropy function, accepting logits"""
-    return torch.mean(-torch.sum(target * (input - torch.logsumexp(input, 0)), 0))
+    log_sum_vector = torch.logsumexp(input, 1)
+    log_sum_vector_large = log_sum_vector.unsqueeze(0).repeat((input.size()[1], 1))
+    return torch.mean(-torch.sum(target * (input - log_sum_vector_large.permute((1, 0))), 0))
 

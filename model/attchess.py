@@ -7,6 +7,7 @@ import math
 from positional_encodings import PositionalEncoding2D
 
 from base.base_model import BaseModel
+from utils.util import word_to_move
 
 
 class AttChess_old(BaseModel):
@@ -96,7 +97,7 @@ class AttChess(BaseModel):
         # Move legality classification heads
         self.k_legal = MLP(hidden_dim, hidden_dim, hidden_dim, 3, dropout=dropout)
         self.q_legal = MLP(hidden_dim, hidden_dim, hidden_dim, 3, dropout=dropout)
-        self.promotion_embedding = nn.Embedding(8, hidden_dim)  # Handling promotions, 4 possible pieces
+        self.promotion_embedding = nn.Embedding(12, hidden_dim)  # Handling promotions, 4 possible pieces
 
         # Move classification embedding and MLP
         self.query_embedding = nn.Embedding(4865, hidden_dim, padding_idx=4864)
@@ -104,6 +105,8 @@ class AttChess(BaseModel):
 
     def forward(self, boards: torch.Tensor):
         """Input: chessboard embedding index input"""
+
+        batch_size = boards.size()[0]
 
         # Embedding + pos embedding
         hidden_embedding = self.backbone_embedding(boards)
@@ -113,7 +116,8 @@ class AttChess(BaseModel):
         # Transformer encoder + classification head
         encoder_output = self.chess_encoder(transformer_input)
         enc_k_output = self.k_legal(encoder_output)
-        encoder_output_aug = torch.cat((encoder_output, self.promotion_embedding.weight.unsqueeze(0)), 1)
+        encoder_output_aug = torch.cat((encoder_output,
+                                        self.promotion_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)), 1)
         enc_q_output = self.q_legal(encoder_output_aug)
         legal_move_out = torch.matmul(enc_k_output, enc_q_output.permute((0, 2, 1)))
         legal_move_mask = legal_move_out > 0
@@ -137,3 +141,34 @@ class AttChess(BaseModel):
         classification_scores = self.move_quality_cls_head(decoder_output)  # idx 255 is saved for resigning or draw
 
         return legal_move_out, classification_scores.squeeze(2)
+
+    def post_process(self, legal_move_out, classification_scores):
+
+        cls_score_batch = []
+        end_game_flag = []
+        legal_move_list = []
+
+        for legal_move_ind, cls_end_score_ind in zip(legal_move_out, classification_scores):
+
+            legal_move_mat = legal_move_ind > 0
+            legal_move_idx = torch.nonzero(legal_move_mat)
+            legal_move_word = legal_move_idx[:, 1] + 64 * legal_move_idx[:, 2]
+
+            legal_move_list.append([])
+            word_idx = 0
+            # Collect all legal move in a 2d list
+            for word_idx, word in enumerate(legal_move_word):
+                move = word_to_move(word)
+                legal_move_list[-1].append(move)
+                if word_idx >= self.query_word_len - 1:
+                    break
+
+            end_game_flag.append(cls_end_score_ind[-1])
+
+            # Handling classification scores. Has to be stored in a list because every one of them has a different size
+            part_cls_score = cls_end_score_ind[:word_idx].clone()
+            part_cls_score = torch.exp(part_cls_score) / torch.logsumexp(part_cls_score, 0)
+            cls_score_batch.append(part_cls_score)
+
+        return legal_move_list, cls_score_batch, legal_move_list
+
