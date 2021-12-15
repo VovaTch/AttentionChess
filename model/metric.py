@@ -51,17 +51,12 @@ def a_rule_precision(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tenso
                      target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor, *args):
     """Average precision for the rules"""
 
-    flatten_pred_legal_mat = pred_legal_mat.flatten()
-    flatten_target_legal_mat = target_legal_mat.flatten()
+    preds_bool = pred_legal_mat > 0
+    targets_bool = target_legal_mat == 0
+    tp_bool = preds_bool * targets_bool
 
-    tp_count = 0
-    fp_count = 0
-
-    for pred_ind, target_ind in zip(flatten_pred_legal_mat, flatten_target_legal_mat):
-        if pred_ind > 0 and target_ind == 1:
-            tp_count += 1
-        elif pred_ind > 0 and target_ind == 0:
-            fp_count += 1
+    tp_count = torch.sum(tp_bool)
+    fp_count = torch.sum(preds_bool) - torch.sum(tp_bool)
 
     return tp_count / (tp_count + fp_count + 1e-5)
 
@@ -71,17 +66,12 @@ def a_rule_recall(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
                   target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor, *args):
     """Average precision for the rules"""
 
-    flatten_pred_legal_mat = pred_legal_mat.flatten()
-    flatten_target_legal_mat = target_legal_mat.flatten()
+    preds_bool = pred_legal_mat > 0
+    targets_bool = target_legal_mat == 0
+    tp_bool = preds_bool * targets_bool
 
-    tp_count = 0
-    fn_count = 0
-
-    for pred_ind, target_ind in zip(flatten_pred_legal_mat, flatten_target_legal_mat):
-        if pred_ind > 0 and target_ind == 1:
-            tp_count += 1
-        elif pred_ind <= 0 and target_ind == 1:
-            fn_count += 1
+    tp_count = torch.sum(tp_bool)
+    fn_count = torch.sum(targets_bool) - torch.sum(tp_bool)
 
     return tp_count / (tp_count + fn_count + 1e-5)
 

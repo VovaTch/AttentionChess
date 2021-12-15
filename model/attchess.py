@@ -152,7 +152,7 @@ class AttChess(BaseModel):
 
             legal_move_mat = legal_move_ind > 0
             legal_move_idx = torch.nonzero(legal_move_mat)
-            legal_move_word = legal_move_idx[:, 1] + 64 * legal_move_idx[:, 2]
+            legal_move_word = legal_move_idx[:, 0] + 64 * legal_move_idx[:, 1]
 
             legal_move_list.append([])
             word_idx = 0

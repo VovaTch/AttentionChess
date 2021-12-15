@@ -33,7 +33,7 @@
     {
         "type": "Criterion",
         "args": {
-            "eos_coef": 0.4,
+            "eos_coef": 0.45,
             "losses": ["labels", "cardinality", "cardinality_direction", "mse_score"]
         }
     },
@@ -43,8 +43,7 @@
         "loss_score": 0
     },
     "metrics": [
-        "mse_score_loss", "cardinality_loss", "cardinality_loss_direction", "label_loss",
-        "a_rule_precision", "a_rule_recall"
+        "mse_score_loss", "cardinality_loss", "cardinality_loss_direction", "label_loss"
     ],
     "lr_scheduler": {
         "type": "StepLR",
