@@ -170,5 +170,5 @@ class AttChess(BaseModel):
             part_cls_score = torch.exp(part_cls_score) / torch.logsumexp(part_cls_score, 0)
             cls_score_batch.append(part_cls_score)
 
-        return legal_move_list, cls_score_batch, legal_move_list
+        return legal_move_list, cls_score_batch, end_game_flag
 

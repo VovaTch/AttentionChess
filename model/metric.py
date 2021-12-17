@@ -52,7 +52,7 @@ def a_rule_precision(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tenso
     """Average precision for the rules"""
 
     preds_bool = pred_legal_mat > 0
-    targets_bool = target_legal_mat == 0
+    targets_bool = target_legal_mat == 1
     tp_bool = preds_bool * targets_bool
 
     tp_count = torch.sum(tp_bool)
@@ -67,7 +67,7 @@ def a_rule_recall(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
     """Average precision for the rules"""
 
     preds_bool = pred_legal_mat > 0
-    targets_bool = target_legal_mat == 0
+    targets_bool = target_legal_mat == 1
     tp_bool = preds_bool * targets_bool
 
     tp_count = torch.sum(tp_bool)

@@ -24,7 +24,7 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-6,
+            "lr": 1e-2,
             "weight_decay": 1e-4,
             "amsgrad": true
         }
@@ -39,11 +39,11 @@
     },
     "loss_weights":
     {
-        "loss_labels": 5,
-        "loss_score": 0
+        "loss_labels": 3,
+        "loss_score": 0.5
     },
     "metrics": [
-        "mse_score_loss", "cardinality_loss", "cardinality_loss_direction", "label_loss"
+        "mse_score_loss", "cardinality_loss", "cardinality_loss_direction", "label_loss", "a_rule_precision", "a_rule_recall"
     ],
     "lr_scheduler": {
         "type": "StepLR",

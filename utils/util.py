@@ -94,15 +94,15 @@ def word_to_move(word):
     promotion_char = ['n', 'b', 'r', 'q']
 
     # Decompose to individual move coordinates
-    coordinates_from_to = (int(word % 64), np.floor(word / 64))
-    coordinates_from = (int(coordinates_from_to[0] % 8), np.floor(coordinates_from_to[0] / 8))  # 0 is a,b,c... 1 is numbers
+    coordinates_from_to = (int(word % 64), word // 64)
+    coordinates_from = (int(coordinates_from_to[0] % 8), coordinates_from_to[0] // 8)  # 0 is a,b,c... 1 is numbers
 
-    coor_char_from = coor_col[coordinates_from[0]] + str(coordinates_from[1] + 1)
+    coor_char_from = coor_col[coordinates_from[0]] + str(int(coordinates_from[1] + 1))
 
     # If not promoting
-    if coordinates_from_to[1]< 64:
-        coordinates_to = (int(coordinates_from_to[1] % 8), np.floor(coordinates_from_to[1] / 8))
-        coor_char_to = coor_col[coordinates_to[0]] + str(coordinates_to[1] + 1)
+    if coordinates_from_to[1] < 64:
+        coordinates_to = (int(coordinates_from_to[1] % 8), coordinates_from_to[1] // 8)
+        coor_char_to = coor_col[coordinates_to[0]] + str(int(coordinates_to[1] + 1))
 
     # If promoting
     else:
@@ -126,6 +126,7 @@ def word_to_move(word):
     move = chess.Move.from_uci(coor_char_from + coor_char_to)
 
     return move
+
 
 def move_to_coordinate(move: chess.Move):
     from_square = move.from_square

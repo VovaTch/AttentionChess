@@ -193,6 +193,7 @@ class RuleChessDataset(Dataset):
             # Fill the legal move matrix
             legal_move_mat = torch.zeros((1, 64, 76))
             quality_vector = torch.zeros((1, self.query_word_len))
+            quality_vector[0, -1] = 0.5
             for idx_move, legal_move in enumerate(board.legal_moves):
 
                 move_legal_coor = move_to_coordinate(legal_move)

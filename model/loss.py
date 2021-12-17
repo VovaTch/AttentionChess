@@ -25,12 +25,13 @@ class Criterion(torch.nn.Module):
                        target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor):
         """Score for the move strength. The move strength should be drawn from outside, or another class"""
 
-        lined_up_pred_quality = move_lineup(pred_legal_mat, pred_quality_vec, target_legal_mat)
+        lined_up_pred_quality, match_find = move_lineup(pred_legal_mat, pred_quality_vec, target_legal_mat)
+        target_quality_vec *= match_find
         mse_loss = torch.nn.MSELoss()
-        loss_ce_gen = cross_entropy_gen(lined_up_pred_quality, target_quality_vec)
+        loss_ce_gen = cross_entropy_gen(lined_up_pred_quality[:, :-1], target_quality_vec[:, :-1])
         loss_mse_gen = mse_loss(lined_up_pred_quality[:, -1], target_quality_vec[:, -1])
 
-        loss = {'loss_score': loss_ce_gen + loss_mse_gen}
+        loss = {'loss_score': loss_ce_gen * 200 + loss_mse_gen}
         return loss
 
     def label_loss(self,pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
@@ -100,10 +101,12 @@ def move_lineup(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
     """A utility function for loss computation; lines up predicted moves with matched targets"""
 
     lined_up_all_preds = torch.zeros((0, pred_quality_vec.size()[1])).to(pred_quality_vec.device)
+    match_find = torch.zeros((0, pred_quality_vec.size()[1])).to(pred_quality_vec.device)
 
     for batch_idx in range(pred_legal_mat.size()[0]):
 
         pred_q_lined = torch.zeros((pred_quality_vec.size()[1])).to(pred_quality_vec.device) - 1e6
+        match_find_batch = torch.zeros((pred_quality_vec.size()[1]), dtype=torch.bool).to(pred_quality_vec.device)
 
         t_legal_move_mat = target_legal_mat[batch_idx, :, :] == 1
         t_legal_move_idx = torch.nonzero(t_legal_move_mat)
@@ -119,11 +122,14 @@ def move_lineup(pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
                 p_idx = torch.nonzero(p_finder)
                 if p_idx < pred_quality_vec.size()[1] - 1:
                     pred_q_lined[t_idx] = pred_quality_vec[batch_idx, p_idx]
+                    match_find_batch[t_idx] = True
 
         pred_q_lined[pred_quality_vec.size()[1] - 1] = pred_quality_vec[batch_idx, pred_quality_vec.size()[1] - 1]
         lined_up_all_preds = torch.cat((lined_up_all_preds, pred_q_lined.unsqueeze(0)), 0)
+        match_find = torch.cat((match_find, match_find_batch.unsqueeze(0)), 0)
 
-    return lined_up_all_preds
+    match_find[:, -1] = 1
+    return lined_up_all_preds, match_find
 
 
 class FocalLoss(torch.nn.Module):
@@ -152,5 +158,8 @@ def cross_entropy_gen(input, target):
     """Implementing a general cross entropy function, accepting logits"""
     log_sum_vector = torch.logsumexp(input, 1)
     log_sum_vector_large = log_sum_vector.unsqueeze(0).repeat((input.size()[1], 1))
-    return torch.mean(-torch.sum(target * (input - log_sum_vector_large.permute((1, 0))), 0))
+    target_normal = torch.sum(target, 1)
+    target_normal_large = target_normal.unsqueeze(0).repeat((target.size()[1]), 1) + 1e-10
+    targets_normalized = torch.div(target, target_normal_large.permute((1, 0)))
+    return torch.mean(-torch.sum(targets_normalized * (input - log_sum_vector_large.permute((1, 0))), 0))
 

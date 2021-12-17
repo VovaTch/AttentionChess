@@ -2,6 +2,7 @@ import argparse
 import collections
 import torch
 import chess
+from chessboard import display
 
 import model.attchess as module_arch
 from model.attchess import AttChess
@@ -34,8 +35,11 @@ def main(config):
     else:
         player_turn = False
 
+    # display.start(board.fen())
+
     # Main playing loop
     while True:
+    # while not display.checkForQuit():
         logger.info(board)
 
         # Player move; doesn't matter if black or white
@@ -52,6 +56,7 @@ def main(config):
                     break
 
             board.push_san(move_candidate_str)
+            # display.update(board.fen())
             player_turn = not player_turn
 
         # Computer move
@@ -62,7 +67,7 @@ def main(config):
             legal_move_list, cls_vec, endgame_flag = engine.post_process(outputs_legal, outputs_class_vec)
             cat = torch.distributions.Categorical(cls_vec[0])
 
-            print(f'Endgame flag: {endgame_flag:.2g}')
+            print(f'Endgame flag: {endgame_flag[0]:.2g}')
 
             # Force legal move
             while True:
@@ -74,14 +79,18 @@ def main(config):
                 if sample in board.legal_moves:
                     board.push(sample)
                     break
+
+            # display.update(board.fen())
             player_turn = not player_turn
+
+    # display.terminate()
 
 
 if __name__ == '__main__':
     args = argparse.ArgumentParser(description='PyTorch Template')
     args.add_argument('-c', '--config', default='config_s1.json', type=str,
                       help='config file path (default: None)')
-    args.add_argument('-r', '--resume', default='model_best.pth', type=str,
+    args.add_argument('-r', '--resume', default='wrong_model_training.pth', type=str,
                       help='path to latest checkpoint (default: None)')
     args.add_argument('-d', '--device', default='cuda', type=str,
                       help='indices of GPUs to enable (default: all)')
