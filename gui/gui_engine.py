@@ -24,14 +24,41 @@ class GameState:
         self.board.push(move_made)
         self.move_log.append(move_made)
 
-    def make_move_mouse(self, player_clicks):
+    def check_promotion(self, player_clicks):
+        """Checks for promotions"""
+        pieces_moved_enc = self.get_embedding_board()[player_clicks[0][0], (7 - player_clicks[0][1])]
+
+        if (pieces_moved_enc in [7, 25] and player_clicks[1][1] == 0)\
+                or (pieces_moved_enc in [5, 23] and player_clicks[1][1] == 7):
+            return True
+        else:
+            return False
+
+    def make_move_mouse(self, player_clicks, promotion=None):
         """Makes a chess move from user input"""
         move_coor_from = player_clicks[0][0] + 8 * (7 - player_clicks[0][1])
         pieces_moved_enc = self.get_embedding_board()[player_clicks[0][0], (7 - player_clicks[0][1])]
         move_coor_to = player_clicks[1][0] + 8 * (7 - player_clicks[1][1])
         pieces_captured_enc = self.get_embedding_board()[player_clicks[1][0], (7 - player_clicks[1][1])]
-        move_word = move_coor_from + 64 * move_coor_to  # TODO: Handle promotions and castling
+          # TODO: Handle promotions
 
+        # Pawn promotions
+        if player_clicks[1][1] in [0, 7] and promotion is not None:
+            diff = player_clicks[0][0] - player_clicks[1][0]
+            # Queen
+            if promotion == 'q':
+                move_coor_to = 65 - diff
+            # Rook
+            if promotion == 'r':
+                move_coor_to = 68 - diff
+            # Bishop
+            if promotion == 'b':
+                move_coor_to = 71 - diff
+            # Knight
+            if promotion == 'n':
+                move_coor_to = 74 - diff
+
+        move_word = move_coor_from + 64 * move_coor_to
         move_chess = word_to_move(int(move_word + 1e-6))
         if move_chess in self.board.legal_moves:
             self.board.push(move_chess)

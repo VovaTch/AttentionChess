@@ -109,19 +109,19 @@ def word_to_move(word):
         if 64 <= coordinates_from_to[1] < 67:
             coor_shift = 65 - coordinates_from_to[1]
             coor_up_down = 0 if coordinates_from[1] == 1 else 7
-            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1)
+            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1) + promotion_char[3]
         elif 67 <= coordinates_from_to[1] < 70:
             coor_shift = 68 - coordinates_from_to[1]
             coor_up_down = 0 if coordinates_from[1] == 1 else 7
-            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1)
+            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1) + promotion_char[2]
         elif 70 <= coordinates_from_to[1] < 73:
             coor_shift = 71 - coordinates_from_to[1]
             coor_up_down = 0 if coordinates_from[1] == 1 else 7
-            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1)
+            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1) + promotion_char[1]
         else:
             coor_shift = 74 - coordinates_from_to[1]
             coor_up_down = 0 if coordinates_from[1] == 1 else 7
-            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1)
+            coor_char_to = coor_col[coordinates_from[0] - coor_shift] + str(coor_up_down + 1) + promotion_char[0]
 
     move = chess.Move.from_uci(coor_char_from + coor_char_to)
 

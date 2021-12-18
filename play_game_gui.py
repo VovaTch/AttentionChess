@@ -38,6 +38,57 @@ def draw_board(screen, args, w_color='light gray', b_color='gray'):
                                               args.width // 8, args.height // 8))
 
 
+def draw_promotion_choice(screen, args, color='dark gray'):
+    p.draw.rect(screen, color, p.Rect(2.5 * args.width // 8, 2.5 * args.height // 8,
+                                      args.width // 8, args.height // 8))
+    screen.blit(IMAGES['queenw'], p.Rect(2.5 * args.width // 8, 2.5 * args.height // 8,
+                                         args.width // 8, args.height // 8))
+
+    p.draw.rect(screen, color, p.Rect(4.5 * args.width // 8, 4.5 * args.height // 8,
+                                      args.width // 8, args.height // 8))
+    screen.blit(IMAGES['rookw'], p.Rect(4.5 * args.width // 8, 4.5 * args.height // 8,
+                                         args.width // 8, args.height // 8))
+
+    p.draw.rect(screen, color, p.Rect(2.5 * args.width // 8, 4.5 * args.height // 8,
+                                      args.width // 8, args.height // 8))
+    screen.blit(IMAGES['bishopw'], p.Rect(2.5 * args.width // 8, 4.5 * args.height // 8,
+                                         args.width // 8, args.height // 8))
+
+    p.draw.rect(screen, color, p.Rect(4.5 * args.width // 8, 2.5 * args.height // 8,
+                                      args.width // 8, args.height // 8))
+    screen.blit(IMAGES['knightw'], p.Rect(4.5 * args.width // 8, 2.5 * args.height // 8,
+                                         args.width // 8, args.height // 8))
+
+
+def promotion_selector(args):
+    selected = None
+
+    while selected is None:
+        mouse_location = p.mouse.get_pos()
+
+        # Select the queen
+        if 2.5 * args.width // 8 <= mouse_location[0] <= 3.5 * args.width // 8 and \
+                2.5 * args.width // 8 <= mouse_location[1] <= 3.5 * args.width // 8:
+            selected = 'q'
+
+        # Select the rook
+        if 4.5 * args.width // 8 <= mouse_location[0] <= 5.5 * args.width // 8 and \
+                4.5 * args.width // 8 <= mouse_location[1] <= 5.5 * args.width // 8:
+            selected = 'r'
+
+        # Select the bishop
+        if 2.5 * args.width // 8 <= mouse_location[0] <= 3.5 * args.width // 8 and \
+                4.5 * args.width // 8 <= mouse_location[1] <= 5.5 * args.width // 8:
+            selected = 'b'
+
+        # Select the knight
+        if 4.5 * args.width // 8 <= mouse_location[0] <= 5.5 * args.width // 8 and \
+                2.5 * args.width // 8 <= mouse_location[1] <= 3.5 * args.width // 8:
+            selected = 'n'
+
+    return selected
+
+
 def draw_pieces(screen, args, embedding_board):
     """Drawing the pieces on the board"""
 
@@ -94,6 +145,8 @@ def main(args):
     # initialize variables
     sq_selected = ()
     player_clicks = []
+    promotion_flag = False
+    selected_piece = None # Selected piece for promotion
 
     # game loop
     running = True
@@ -118,6 +171,11 @@ def main(args):
 
             # ----------------------- MOUSE HANDLERS ----------------------------
             elif e.type == p.MOUSEBUTTONDOWN:
+
+                if promotion_flag:
+                    selected_piece = promotion_selector(args)
+                    print(selected_piece)
+
                 mouse_location = p.mouse.get_pos()  # (x, y) of mouse location
                 row, col = mouse_location[0] // square_size_x, mouse_location[1] // square_size_y
 
@@ -132,16 +190,27 @@ def main(args):
                     player_clicks.append(sq_selected)
                     print(f'[INFO] clicked: {sq_displayed}')
 
+                if promotion_flag:
+                    player_clicks.pop()
                 # If there were 2 clicks for moves:
                 if len(player_clicks) == 2:
 
-                    valid_move = gs.make_move_mouse(player_clicks)
+                    if not promotion_flag:
+                        promotion_flag = gs.check_promotion(player_clicks)
+                    else:
+                        promotion_flag = False
+
+                    valid_move = gs.make_move_mouse(player_clicks, promotion=selected_piece)
+                    selected_piece = None
                     if not valid_move:
                         print('[WARN] Illegal move!!!')
                     sq_selected = ()  # Zero out the player inputs
-                    player_clicks = []
+                    if not promotion_flag:
+                        player_clicks = []
 
         draw_game_state(screen, gs, args)
+        if promotion_flag:
+            draw_promotion_choice(screen, args)
         clock.tick(args.max_fps)
         p.display.flip()
 
