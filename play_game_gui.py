@@ -2,11 +2,14 @@ import chess
 import pygame as p
 import argparse
 import sys
+import collections
 
 import torch
 
+import model.attchess as module_arch
 from gui.gui_engine import GameState
-from utils.util import move_to_coordinate, word_to_move
+from utils.util import prepare_device, board_to_embedding_coord
+from parse_config import ConfigParser
 
 DIMENSION = 8
 IMAGES = {}
@@ -92,7 +95,7 @@ def promotion_selector(args):
 def draw_pieces(screen, args, embedding_board):
     """Drawing the pieces on the board"""
 
-    embedding_board_flipped = torch.flip(embedding_board, [0])  #  For display
+    embedding_board_flipped = torch.flip(embedding_board, [0])  # For display
 
     for row in range(DIMENSION):
         for column in range(DIMENSION):
@@ -130,7 +133,20 @@ def draw_pieces(screen, args, embedding_board):
                                                   args.width // 8, args.height // 8))
 
 
-def main(args):
+def main(args, config):
+
+    # Load the net
+    logger = config.get_logger('Chess game')
+    device, _ = prepare_device(config['n_gpu'])
+
+    # Load network
+    engine = config.init_obj('arch', module_arch)
+    checkpoint = torch.load(config.resume, map_location=torch.device('cpu'))
+    engine.load_state_dict(checkpoint['state_dict'])
+    engine = engine.to(device).eval()
+    logger.info('Engine loaded')
+
+    # Prepare the screen of the gui
     screen = p.display.set_mode((args.width, args.height))
     clock = p.time.Clock()
     screen.fill(p.Color('white'))
@@ -146,7 +162,7 @@ def main(args):
     sq_selected = ()
     player_clicks = []
     promotion_flag = False
-    selected_piece = None # Selected piece for promotion
+    selected_piece = None  # Selected piece for promotion
 
     # game loop
     running = True
@@ -160,14 +176,33 @@ def main(args):
                 running = False
 
             # ----------------------- KEYBOARD HANDLERS ----------------------------
-            elif keys[p.K_z] and keys[p.K_LCTRL]:
-                gs.undo_move()
-                print('[INFO] Undoing move')
-                sq_selected = ()
-                player_clicks = []
+            elif e.type == p.KEYDOWN:
 
-            elif keys[p.K_SPACE]:
-                print('[INFO] Opponent move')
+                if keys[p.K_z] and keys[p.K_LCTRL]:
+                    gs.undo_move()
+                    print('[INFO] Undoing move')
+                    sq_selected = ()
+                    player_clicks = []
+
+                elif keys[p.K_SPACE]:
+                    print('[INFO] Bot move')
+
+                    # Run the network and get a move sample
+                    board_tensor = board_to_embedding_coord(gs.board).to(device)
+                    outputs_legal, outputs_class_vec = engine(board_tensor.unsqueeze(0))
+                    legal_move_list, cls_vec, endgame_flag = engine.post_process(outputs_legal, outputs_class_vec)
+                    cat = torch.distributions.Categorical(cls_vec[0])
+
+                    # Force legal move
+                    while True:
+
+                        sample_idx = cat.sample()
+                        sample = legal_move_list[0][sample_idx]
+
+                        print(f'[INFO] Move in uci: {sample}')
+                        if sample in gs.board.legal_moves:
+                            gs.board.push(sample)
+                            break
 
             # ----------------------- MOUSE HANDLERS ----------------------------
             elif e.type == p.MOUSEBUTTONDOWN:
@@ -219,10 +254,25 @@ def main(args):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='Simple chess board for playing the bot.')
+    parser.add_argument('-c', '--config', default='config_s1.json', type=str,
+                        help='config file path (default: None)')
+    parser.add_argument('-r', '--resume', default='checkpoint-epoch190.pth', type=str,
+                        help='path to latest checkpoint (default: None)')
+    parser.add_argument('-d', '--device', default='cuda', type=str,
+                        help='indices of GPUs to enable (default: all)')
     parser.add_argument('--height', type=int, default=512, help='Screen height')
     parser.add_argument('--width', type=int, default=512, help='Screen width')
     parser.add_argument('--max_fps', type=int, default=60, help='Maximum frames-per-second')
 
+    # custom cli options to modify configuration from default values given in json file.
+    CustomArgs = collections.namedtuple('CustomArgs', 'flags type target')
+    options = [
+        CustomArgs(['--lr', '--learning_rate'], type=float, target='optimizer;args;lr'),
+        CustomArgs(['--bs', '--batch_size'], type=int, target='data_loader;args;batch_size')
+    ]
+
+    config = ConfigParser.from_args(parser, options)
+
     arg = parser.parse_args()
-    main(arg)
+    main(arg, config)
