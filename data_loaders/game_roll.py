@@ -10,93 +10,118 @@ from utils.util import board_to_tensor, legal_move_mask
 class GameRoller:
     """A class for the model to play against itself. It plays a game and outputs the moves + result"""
 
-    def __init__(self, model_good: AttChess, model_evil: AttChess, device='cuda', move_limit=100):
+    @torch.no_grad()
+    def __init__(self, model_good: AttChess, model_evil: AttChess, device='cuda', move_limit=150):
         """Loads the model"""
         self.model_good = copy.deepcopy(model_good)
         self.model_evil = copy.deepcopy(model_evil)
         self.device = device
         self.move_limit = move_limit
 
-        self.board_buffer = torch.zeros((0, 8, 8)).to(self.device)
-        self.move_mat_buffer = torch.zeros((0, 64, 64)).to(self.device)
-        self.selected_move_buffer = torch.zeros((0, 64, 64)).to(self.device)
+        self.board_buffer = []
+        self.move_buffer = []
+        self.move_vec_buffer = []
+        self.reward_vec_buffer = []
+        self.result = {}  # a dict that describes what happened and with how many moves
 
-    def roll_game(self, board: chess.Board):
+    @torch.no_grad()
+    def roll_game(self, init_board: chess.Board, num_of_branches=1):
         """Plays the entire game"""
-        # torch.multiprocessing.set_start_method('spawn')
-        with torch.no_grad():
-            board_torch = board_to_tensor(board).unsqueeze(0)
-            board_torch = board_torch.to(self.device)
-            turn = [board.turn]
-            good = True
+        # torch.multiprocessing.set_start_method('spawn') TODO: CODE THE FUNCTION, MAYBE APPLY MULTIPLE GAMES SIMULTANEOUSLY
 
-            while True:
+        # Initialization, limiting game length to the constant
+        move_count = init_board.fullmove_number
+        turn = init_board.turn
+        is_good = True
 
-                self.board_buffer = torch.cat((self.board_buffer, board_torch), 0)
+        # Add board to buffer
+        self.board_buffer.append([copy.deepcopy(init_board) for idx in range(num_of_branches)])
+        board_idx_buffer = [[idx for idx in range(num_of_branches)]]
 
-                # Run the network to determine the next move, filter illegal moves and normalize
-                if good:
-                    move_mat = self.model_good(board_torch, turn)
-                else:
-                    move_mat = self.model_evil(board_torch, turn)
-                good = not good
-                legal_move_matrix = legal_move_mask(board).to(self.device).unsqueeze(0)
-                move_mat += legal_move_matrix
-                move_mat = torch.exp(move_mat) / torch.sum(torch.exp(move_mat))
+        while True:
 
-                self.move_mat_buffer = torch.cat((self.move_mat_buffer, move_mat), 0)
+            if is_good:
+                outputs_legal, outputs_class_vec = self.model_good.board_forward(self.board_buffer[-1])
+                legal_move_list, cls_vec, endgame_flag = self.model_good.post_process(outputs_legal, outputs_class_vec)
+            else:
+                outputs_legal, outputs_class_vec = self.model_evil.board_forward(self.board_buffer[-1])
+                legal_move_list, cls_vec, endgame_flag = self.model_evil.post_process(outputs_legal, outputs_class_vec)
 
-                # Sample the move
-                sampled_move_torch_flatten = torch.multinomial(move_mat[0].float().flatten(), 1)
-                sampled_move_torch = (sampled_move_torch_flatten % 64, torch.div(sampled_move_torch_flatten,
-                                                                                 64, rounding_mode='floor'))
-                sampled_move = chess.Move(sampled_move_torch[1], sampled_move_torch[0])
-                sampled_move_matrix = torch.zeros((1, 64, 64)).to(self.device)
-                sampled_move_matrix[0, sampled_move_torch[1], sampled_move_torch[0]] = 1
-                sampled_move_matrix[sampled_move_matrix != 1] = -np.inf
+            # New board idx buffer
+            new_board_idx = copy.copy(board_idx_buffer[-1])
+            board_idx_buffer.append(new_board_idx)
 
-                self.selected_move_buffer = torch.cat((self.selected_move_buffer, sampled_move_matrix), 0)
+            # Collect individual boards and moves. If one game ends, reroll reward to the beginning.
+            model_sub_buffer = []
+            move_sub_buffer = []
+            move_vec_sub_buffer = []
+            reward_vec_sub_buffer = []
 
-                if sampled_move.promotion:
-                    print('Promotion, deal with it')  # TODO: Deal with promotions
+            # Simpler one
+            init_move_list = [move for move in init_board.legal_moves]
+            final_probability_vec = torch.zeros((len(init_move_list))).to(self.device) + 1e-10
 
-                # Plan the sampled move
-                board.push(sampled_move)
-                board_torch = board_to_tensor(board).to(self.device).unsqueeze(0)
+            for idx, (legal_move_ind, cls_vec_ind) in enumerate(zip(legal_move_list, cls_vec)):
 
-                # Conditions for termination
-                num_moves = self.move_mat_buffer.size()[0]
-                if num_moves > self.move_limit:  # Exceeds the number of moves allowed
-                    result = {'result': 0, 'moves': num_moves}
-                    break
-                if board.is_checkmate():  # Someone wins by checkmate
-                    if turn:
-                        result = {'result': 1, 'moves': num_moves}
-                    else:
-                        result = {'result': -1, 'moves': num_moves}
-                    break
-                if board.is_insufficient_material() or board.is_fivefold_repetition() \
-                        or board.is_seventyfive_moves() or board.is_stalemate():  # Drawing conditions
-                    result = {'result': 0, 'moves': num_moves}
-                    break
-                turn[-1] = not turn[-1]
+                # Sample moves
+                cat = torch.distributions.Categorical(cls_vec_ind)
+                sample_idx = cat.sample()
+                sample = legal_move_ind[sample_idx]
+                move_sub_buffer.append(sample)
 
-        return result
+                # Move to buffer
+                copied_board = copy.deepcopy(self.board_buffer[-1][idx])
+                copied_board.push(sample)
+                model_sub_buffer.append(copied_board)
+                move_vec_sub_buffer.append(copied_board.legal_moves)
+                reward_vec_sub_buffer.append(torch.zeros(len(copied_board.legal_moves)).to(self.device))
 
+                # End game conditions
+                if model_sub_buffer[-1].is_checkmate():
+                    print(f'Victory to white: {self.board_buffer[-1][idx].turn}')  # TODO: TEMP
+                    model_sub_buffer.pop()
+                    init_move_idx = board_idx_buffer[-1][idx]  # index of initial move
+                    board_idx_buffer[-1].pop()
+
+
+                if model_sub_buffer[-1].is_stalemate():
+                    print('Stalemate')
+                    model_sub_buffer.pop()
+                    board_idx_buffer[-1].pop()
+                if model_sub_buffer[-1].is_insufficient_material():
+                    print('Insufficient Material draw')
+                    model_sub_buffer.pop()
+                    board_idx_buffer[-1].pop()
+                if model_sub_buffer[-1].can_claim_threefold_repetition():
+                    print('Repetition')
+                    model_sub_buffer.pop()
+                    board_idx_buffer[-1].pop()
+
+            self.board_buffer.append(model_sub_buffer)
+            self.move_buffer.append(move_sub_buffer)
+
+            print(self.board_buffer[-1][0].fullmove_number)
+
+            # Too many moves break
+            if self.board_buffer[-1][0].fullmove_number > self.move_limit:
+                # TODO: There may be more
+                break
+
+        pass
+
+    @torch.no_grad()
     def reset_buffers(self):
 
-        self.board_buffer = torch.zeros((0, 8, 8)).to(self.device)
-        self.move_mat_buffer = torch.zeros((0, 64, 64)).to(self.device)
-        self.selected_move_buffer = torch.zeros((0, 64, 64)).to(self.device)
+        self.board_buffer = []
+        self.move_buffer = []
 
+    @torch.no_grad()
     def get_board_buffer(self):
         return self.board_buffer
 
-    def get_move_mat_buffer(self):
-        return self.move_mat_buffer
-
-    def get_selected_move_buffer(self):
-        return self.selected_move_buffer
+    @torch.no_grad()
+    def move_word_buffer(self):
+        return self.move_buffer
 
 
 

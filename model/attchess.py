@@ -7,51 +7,7 @@ import math
 from positional_encodings import PositionalEncoding2D
 
 from base.base_model import BaseModel
-from utils.util import word_to_move
-
-
-class AttChess_old(BaseModel):
-    """Main model"""
-
-    def __init__(self, hidden_dim=256, num_heads=8, num_encoder=15, num_decoder=2, dropout=0.1):
-        super().__init__()
-
-        # Basic transformer
-        self.transformer = nn.Transformer(hidden_dim, num_heads, num_encoder, num_decoder, dropout=dropout)
-        self.move_embedding = nn.Parameter(torch.rand(200, hidden_dim))
-        self.hidden_dim = hidden_dim
-
-        # Chess board learned positional embedding
-        self.positional_embedding = nn.Embedding(64, hidden_dim)
-
-        # Chess backbone embedding
-        self.backbone_embedding = nn.Embedding(36, hidden_dim)
-
-        # Heads: legal classification, move coordinates, move quality
-        self.legal_head_mlp = MLP(hidden_dim + 4, hidden_dim + 4, 1, 3, dropout=dropout)
-        self.move_head_mlp = MLP(hidden_dim, hidden_dim, 4, 3, dropout=dropout)
-        self.quality_head_mlp = MLP(hidden_dim + 4, hidden_dim + 4, 1, 5, dropout=dropout)
-
-    def forward(self, boards):
-        """Input: chessboard embedding index input"""
-        # embedding + pos embedding
-        hidden_embedding = self.backbone_embedding(boards)
-        flat_pos_embedding = self.positional_embedding.weight.unsqueeze(0).repeat(boards.size()[0], 1, 1)
-        transformer_input = hidden_embedding.flatten(1, 2) + flat_pos_embedding
-
-        # transformer encoder-decoder and outputs
-        hs = self.transformer(transformer_input.permute(1, 0, 2),
-                              self.move_embedding.unsqueeze(0).repeat((boards.size()[0], 1, 1)).permute(1, 0, 2))
-
-        # Heads # TODO: Continue
-        move_pred = self.move_head_mlp(hs.permute((1, 0, 2)))
-        move_pred = move_pred.sigmoid()
-        hs_aug = torch.cat((hs.permute((1, 0, 2)), move_pred), 2)
-        legal_pred = self.legal_head_mlp(hs_aug)
-        quality_pred = self.quality_head_mlp(hs_aug)
-        move_output = torch.cat((move_pred[:, :, 0:3], legal_pred, quality_pred, move_pred[:, :, 3].unsqueeze(2)), 2)
-
-        return move_output
+from utils.util import word_to_move, board_to_embedding_coord, move_to_coordinate
 
 
 class MLP(nn.Module):
@@ -94,16 +50,34 @@ class AttChess(BaseModel):
                                                         nhead=num_heads, dropout=dropout)
         self.chess_decoder_stack = nn.TransformerDecoder(self.chess_decoder, num_decoder)
 
-        # Move legality classification heads
-        self.k_legal = MLP(hidden_dim, hidden_dim, hidden_dim, 3, dropout=dropout)
-        self.q_legal = MLP(hidden_dim, hidden_dim, hidden_dim, 3, dropout=dropout)
-        self.promotion_embedding = nn.Embedding(12, hidden_dim)  # Handling promotions, 4 possible pieces
+        # Move legality classification
+        # self.move_mlp = MLP(64, 4864, 4864, 2, dropout=dropout)
 
         # Move classification embedding and MLP
         self.query_embedding = nn.Embedding(4865, hidden_dim, padding_idx=4864)
         self.move_quality_cls_head = MLP(hidden_dim, hidden_dim, 1, 5, dropout=dropout)
 
-    def forward(self, boards: torch.Tensor):
+    def board_forward(self, boards: list[chess.Board]):
+        """Takes a list of boards and converts them to tensors, gets a list of python-chess boards."""
+
+        if next(self.parameters()).is_cuda:
+            device = 'cuda'
+        else:
+            device = 'cpu'
+
+        boards_torch = torch.zeros((len(boards), 8, 8)).to(device)
+        legal_move_torch = torch.zeros((len(boards), 64, 76), requires_grad=False).to(device) - 1
+
+        # Converting board to
+        for board_idx, board in enumerate(boards):
+            boards_torch[board_idx, :, :] = board_to_embedding_coord(board)
+            for legal_move in board.legal_moves:
+                move_coor = move_to_coordinate(legal_move)
+                legal_move_torch[board_idx, move_coor[0], move_coor[1]] = 1
+
+        return self.forward(boards_torch.int(), legal_move_torch)
+
+    def forward(self, boards: torch.Tensor, legal_move_tensor=None):
         """Input: chessboard embedding index input"""
 
         batch_size = boards.size()[0]
@@ -114,12 +88,15 @@ class AttChess(BaseModel):
         transformer_input = hidden_embedding.flatten(1, 2) + flat_pos_embedding
 
         # Transformer encoder + classification head
+        boards_flattened = boards.flatten(1, 2) / 36
         encoder_output = self.chess_encoder(transformer_input)
-        enc_k_output = self.k_legal(encoder_output)
-        encoder_output_aug = torch.cat((encoder_output,
-                                        self.promotion_embedding.weight.unsqueeze(0).repeat(batch_size, 1, 1)), 1)
-        enc_q_output = self.q_legal(encoder_output_aug)
-        legal_move_out = torch.matmul(enc_k_output, enc_q_output.permute((0, 2, 1)))
+
+        # If the moves are need to be learned
+        if legal_move_tensor is None:
+            legal_move_out = self.move_mlp(boards_flattened.float())
+            legal_move_out = legal_move_out.view((batch_size, 64, 76))
+        else:
+            legal_move_out = legal_move_tensor
         legal_move_mask = legal_move_out > 0
 
         # Draw out the legal moves
@@ -148,10 +125,13 @@ class AttChess(BaseModel):
         end_game_flag = []
         legal_move_list = []
 
-        for legal_move_ind, cls_end_score_ind in zip(legal_move_out, classification_scores):
+        legal_move_bool = legal_move_out > 0
+        legal_move_idx_tot = legal_move_bool.nonzero()
 
-            legal_move_mat = legal_move_ind > 0
-            legal_move_idx = torch.nonzero(legal_move_mat)
+        for batch_idx, cls_end_score_ind in enumerate(classification_scores):
+
+            legal_move_idx = legal_move_idx_tot[legal_move_idx_tot[:, 0] == batch_idx]
+            legal_move_idx = legal_move_idx[:, 1:]
             legal_move_word = legal_move_idx[:, 0] + 64 * legal_move_idx[:, 1]
 
             legal_move_list.append([])
@@ -166,8 +146,8 @@ class AttChess(BaseModel):
             end_game_flag.append(cls_end_score_ind[-1])
 
             # Handling classification scores. Has to be stored in a list because every one of them has a different size
-            part_cls_score = cls_end_score_ind[:word_idx].clone()
-            part_cls_score = torch.exp(part_cls_score) / torch.logsumexp(part_cls_score, 0)
+            part_cls_score = cls_end_score_ind[:word_idx + 1].clone()
+            part_cls_score = torch.softmax(part_cls_score, 0)
             cls_score_batch.append(part_cls_score)
 
         return legal_move_list, cls_score_batch, end_game_flag

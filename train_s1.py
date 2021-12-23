@@ -11,6 +11,7 @@ import model.attchess as module_arch
 from parse_config import ConfigParser
 from trainer.trainer_s1 import Trainer
 from utils.util import prepare_device
+from data_loaders.dataloader import collate_fn
 
 
 # fix random seeds for reproducibility
@@ -35,7 +36,7 @@ def main(config):
         model = torch.nn.DataParallel(model, device_ids=device_ids)
 
     # setup data_loader instances
-    data_loader = config.init_obj('data_loader', module_data)
+    data_loader = config.init_obj('data_loader', module_data, collate_fn=collate_fn)
     valid_data_loader = data_loader.split_validation()
 
     # get function handles of loss and metrics

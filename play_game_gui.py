@@ -188,11 +188,11 @@ def main(args, config):
                     print('[INFO] Bot move')
 
                     # Run the network and get a move sample
-                    board_tensor = board_to_embedding_coord(gs.board).to(device)
-                    outputs_legal, outputs_class_vec = engine(board_tensor.unsqueeze(0))
+                    outputs_legal, outputs_class_vec = engine.board_forward([gs.board])
                     legal_move_list, cls_vec, endgame_flag = engine.post_process(outputs_legal, outputs_class_vec)
                     cat = torch.distributions.Categorical(cls_vec[0])
 
+                    print(f'[INFO] Endgame flag: {endgame_flag[0]:.2g}')
                     # Force legal move
                     while True:
 
@@ -257,7 +257,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Simple chess board for playing the bot.')
     parser.add_argument('-c', '--config', default='config_s1.json', type=str,
                         help='config file path (default: None)')
-    parser.add_argument('-r', '--resume', default='checkpoint-epoch190.pth', type=str,
+    parser.add_argument('-r', '--resume', default='model_best_init.pth', type=str,
                         help='path to latest checkpoint (default: None)')
     parser.add_argument('-d', '--device', default='cuda', type=str,
                         help='indices of GPUs to enable (default: all)')

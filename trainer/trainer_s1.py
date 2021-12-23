@@ -48,16 +48,16 @@ class Trainer(BaseTrainer):
         self.logger.info(Fore.YELLOW + '\n-------------------------<<TRAINING>>-----------------------\n'
                          + Fore.RESET)
 
-        for batch_idx, (board, legal_mat, quality) in enumerate(self.data_loader):
+        for batch_idx, (board, quality) in enumerate(self.data_loader):
 
             if self.device == 'cuda':
                 torch.cuda.empty_cache()
 
-            board, legal_mat, quality = board.to(self.device), legal_mat.to(self.device), quality.to(self.device)
+            quality = quality.to(self.device)
             self.optimizer.zero_grad()
 
-            output_legal_mat, output_quality = self.model(board)
-            loss_dict = self.criterion(output_legal_mat, output_quality, legal_mat, quality)
+            _, output_quality = self.model.board_forward(board)
+            loss_dict = self.criterion(output_quality, quality)
             loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
                         for loss_type in self.config['loss_weights']])
             loss.backward()
@@ -66,15 +66,11 @@ class Trainer(BaseTrainer):
             self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
             self.train_metrics.update('loss', loss.item())
             for met in self.metric_ftns:
-                self.train_metrics.update(met.__name__, met(output_legal_mat, output_quality, legal_mat, quality,
-                                                            self.criterion))
+                self.train_metrics.update(met.__name__, met(output_quality, quality, self.criterion))
 
             if (batch_idx + 1) % 10 == 0:
                 self.logger.debug(Fore.GREEN + f'Train Epoch: {epoch} {self._progress(batch_idx)} '
-                                               f'Loss: ' + Fore.CYAN + f'{loss.item():.6f}\n' + Fore.RESET +
-                                               f'Loss legal: {loss_dict["loss_labels"]:.4}, '
-                                               f'Cardinality error: {loss_dict["loss_cardinality"]:.4}, '
-                                               f'Score loss: {loss_dict["loss_score"]:.4}')
+                                               f'Loss: ' + Fore.CYAN + f'{loss.item():.6f}' + Fore.RESET)
             if self.device == 'cuda':
                 torch.cuda.empty_cache()
 
@@ -105,19 +101,19 @@ class Trainer(BaseTrainer):
             self.logger.info(Fore.YELLOW + '\n-------------------------<<EVALUATION>>-----------------------\n'
                              + Fore.RESET)
 
-            for batch_idx, (board, legal_mat, quality) in enumerate(self.valid_data_loader):
+            for batch_idx, (board, quality) in enumerate(self.valid_data_loader):
 
-                board, legal_mat, quality = board.to(self.device), legal_mat.to(self.device), quality.to(self.device)
+                quality = quality.to(self.device)
 
-                output_legal_mat, output_quality = self.model(board)
-                loss_dict = self.criterion(output_legal_mat, output_quality, legal_mat, quality)
+                output_legal_mat, output_quality = self.model.board_forward(board)
+                loss_dict = self.criterion(output_quality, quality)
                 loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
                             for loss_type in self.config['loss_weights']])
 
                 self.writer.set_step((epoch - 1) * len(self.valid_data_loader) + batch_idx, 'valid')
                 self.valid_metrics.update('loss', loss.item())
                 for met in self.metric_ftns:
-                    self.valid_metrics.update(met.__name__, met(output_legal_mat, output_quality, legal_mat, quality,
+                    self.valid_metrics.update(met.__name__, met(output_quality, quality,
                                                                 self.criterion))
                 # self.writer.add_image('input', make_grid(board.cpu(), nrow=8, normalize=True))
 

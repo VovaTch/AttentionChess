@@ -21,77 +21,31 @@ class Criterion(torch.nn.Module):
         self.batch_size = 0
         self.query_size = 0
 
-    def mse_score_loss(self, pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
-                       target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor):
+    def mse_score_loss(self, pred_quality_vec: torch.Tensor, target_quality_vec: torch.Tensor):
         """Score for the move strength. The move strength should be drawn from outside, or another class"""
 
-        lined_up_pred_quality, match_find = move_lineup(pred_legal_mat, pred_quality_vec, target_legal_mat)
-        target_quality_vec *= match_find
         mse_loss = torch.nn.MSELoss()
-        loss_ce_gen = cross_entropy_gen(lined_up_pred_quality[:, :-1], target_quality_vec[:, :-1])
-        loss_mse_gen = mse_loss(lined_up_pred_quality[:, -1], target_quality_vec[:, -1])
+        loss_ce_gen = cross_entropy_gen(pred_quality_vec[:, :-1], target_quality_vec[:, :-1])
+        loss_mse_gen = mse_loss(pred_quality_vec[:, -1], target_quality_vec[:, -1])
 
-        loss = {'loss_score': loss_ce_gen * 200 + loss_mse_gen}
+        loss = {'loss_score': loss_ce_gen + loss_mse_gen}
         return loss
 
-    def label_loss(self,pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
-                   target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor):
-        """Loss function for the matching of moves. Uses l1 loss for matching the moves.
-        Later, the prediction need to be multiplied by 64"""
-
-        pred_legal_mat_flattened = pred_legal_mat.flatten()
-        target_legal_mat_flattened = target_legal_mat.flatten()
-        weight = torch.ones(target_legal_mat_flattened.size()).to(pred_legal_mat.device)
-        weight[target_legal_mat_flattened == 0] = self.eos_coef
-        crit = torch.nn.BCEWithLogitsLoss(weight=weight)
-        loss_ce = crit(pred_legal_mat_flattened, target_legal_mat_flattened)
-
-        loss = {'loss_labels': loss_ce}
-        return loss
-
-    @torch.no_grad()
-    def cardinality_loss(self, pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
-                         target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor):
-        """From DETR, cardinality error is a great representive for the detection of the correct bounding boxes."""
-
-        num_targets = torch.sum(target_legal_mat == 1)
-        num_preds = torch.sum(pred_legal_mat > 0)
-        cardinality_error = np.abs(int(num_targets) - int(num_preds)) / self.batch_size
-
-        loss = {'loss_cardinality': cardinality_error}
-        return loss
-
-    @torch.no_grad()
-    def cardinality_loss_direction(self, pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
-                                   target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor):
-        """From DETR, cardinality error is a great representive for the detection of the correct bounding boxes."""
-
-        num_targets = torch.sum(target_legal_mat == 1)
-        num_preds = torch.sum(pred_legal_mat > 0)
-        cardinality_error = -(int(num_targets) - int(num_preds)) / self.batch_size
-
-        loss = {'loss_cardinality_direction': cardinality_error}
-        return loss
-
-    def get_loss(self, loss, pred_legal_mat, pred_quality_vec, target_legal_mat, target_quality_vec):
+    def get_loss(self, loss, pred_quality_vec, target_quality_vec):
         loss_map = {
-            'labels': self.label_loss,
-            'cardinality': self.cardinality_loss,
-            'cardinality_direction': self.cardinality_loss_direction,
             'mse_score': self.mse_score_loss
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
-        return loss_map[loss](pred_legal_mat, pred_quality_vec, target_legal_mat, target_quality_vec)
+        return loss_map[loss](pred_quality_vec, target_quality_vec)
 
-    def forward(self, pred_legal_mat: torch.Tensor, pred_quality_vec: torch.Tensor,
-                target_legal_mat: torch.Tensor, target_quality_vec: torch.Tensor):
+    def forward(self, pred_quality_vec: torch.Tensor, target_quality_vec: torch.Tensor):
 
-        self.batch_size = pred_legal_mat.size()[0]
-        self.query_size = pred_legal_mat.size()[1]
+        self.batch_size = target_quality_vec.size()[0]
+        self.query_size = target_quality_vec.size()[1]
 
         losses = {}
         for loss in self.losses:
-            losses.update(self.get_loss(loss, pred_legal_mat, pred_quality_vec, target_legal_mat, target_quality_vec))
+            losses.update(self.get_loss(loss, pred_quality_vec, target_quality_vec))
 
         return losses
 
@@ -161,5 +115,5 @@ def cross_entropy_gen(input, target):
     target_normal = torch.sum(target, 1)
     target_normal_large = target_normal.unsqueeze(0).repeat((target.size()[1]), 1) + 1e-10
     targets_normalized = torch.div(target, target_normal_large.permute((1, 0)))
-    return torch.mean(-torch.sum(targets_normalized * (input - log_sum_vector_large.permute((1, 0))), 0))
+    return torch.mean(-torch.sum(targets_normalized * (input - log_sum_vector_large.permute((1, 0))), 1))
 
