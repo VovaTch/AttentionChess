@@ -5,7 +5,7 @@ A personal project for creating a transformer encoder-decoder-based chess engine
 
 ## Current playing instructions:
 
-* Run 'python play_game_gui.py' for a simple chess board gui.
+* Run `python play_game_gui.py` for a simple chess board gui.
 * Move pieces by selecting them and pressing the destination square.
 * Press twice on the same square to cancel the move.
 * Press **space** for the bot to perform a move.
