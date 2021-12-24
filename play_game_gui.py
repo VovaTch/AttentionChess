@@ -190,7 +190,10 @@ def main(args, config):
                     # Run the network and get a move sample
                     outputs_legal, outputs_class_vec = engine.board_forward([gs.board])
                     legal_move_list, cls_vec, endgame_flag = engine.post_process(outputs_legal, outputs_class_vec)
-                    cat = torch.distributions.Categorical(cls_vec[0])
+                    legal_move_san = {gs.board.san(legal_move): float(cls_prob) for legal_move, cls_prob
+                                      in zip(legal_move_list[0], cls_vec[0])}
+                    print(f'[INFO] Probabilities for moves: {legal_move_san}')
+                    cat = torch.distributions.Categorical(cls_vec[0] ** 5)
 
                     print(f'[INFO] Endgame flag: {endgame_flag[0]:.2g}')
                     # Force legal move

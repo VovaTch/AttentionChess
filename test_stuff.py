@@ -25,8 +25,8 @@ def main():
 
     attchess.board_forward([board, board, board])
 
-    game_roller = GameRoller(model_good=attchess, model_evil=attchess)
-    game_roller.roll_game(board, num_of_branches=3)
+    # game_roller = GameRoller(model_good=attchess, model_evil=attchess)
+    # game_roller.roll_game(board, num_of_branches=3)
 
     print(1111)
 
