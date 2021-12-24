@@ -152,3 +152,56 @@ class AttChess(BaseModel):
 
         return legal_move_list, cls_score_batch, end_game_flag
 
+
+class BoardEmbTrainNet(nn.Module):
+    """A class to train the board embedding"""
+
+    def __init__(self, hidden_size=64, emb_size=8):
+        super(BoardEmbTrainNet, self).__init__()
+
+        self.backbone_embedding = nn.Embedding(36, emb_size)
+        self.intermid_layer_1 = nn.Linear(emb_size, hidden_size)
+        self.intermid_layer_2 = nn.Linear(hidden_size, hidden_size)
+        self.piece_head = nn.Linear(hidden_size, 7)
+        self.info_head = nn.Linear(hidden_size, 4)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+
+        x = self.backbone_embedding(x)
+        x = self.intermid_layer_1(x)
+        x = self.relu(x)
+        x = self.intermid_layer_2(x)
+        x = self.relu(x)
+        x_piece = self.piece_head(x)
+        x_info = self.info_head(x)
+
+        return x_piece, x_info
+
+
+class MoveEmbTrainNet(nn.Module):
+    """A class to train the move embedding"""
+
+    def __init__(self, hidden_size=256, emb_size=8):
+        super(MoveEmbTrainNet, self).__init__()
+
+        self.query_embedding = nn.Embedding(4865, emb_size, padding_idx=4864)
+        self.intermid_layer_1 = nn.Linear(emb_size, hidden_size)
+        self.intermid_layer_2 = nn.Linear(hidden_size, hidden_size)
+        self.coor_head = nn.Linear(hidden_size, 4)
+        self.promotion_head = nn.Linear(hidden_size, 5)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+
+        x = self.query_embedding(x)
+        x = self.intermid_layer_1(x)
+        x = self.relu(x)
+        x = self.intermid_layer_2(x)
+        x = self.relu(x)
+        x_coor = self.coor_head(x)
+        x_prom = self.promotion_head(x)
+
+        return x_coor, x_prom
+
+

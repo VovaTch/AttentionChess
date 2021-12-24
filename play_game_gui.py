@@ -3,6 +3,8 @@ import pygame as p
 import argparse
 import sys
 import collections
+import platform
+import pathlib
 
 import torch
 
@@ -135,6 +137,11 @@ def draw_pieces(screen, args, embedding_board):
 
 def main(args, config):
 
+    # Windows boiler code stuff
+    if platform.system() == 'Windows':
+        temp = pathlib.PosixPath
+        pathlib.PosixPath = pathlib.WindowsPath
+
     # Load the net
     logger = config.get_logger('Chess game')
     device, _ = prepare_device(config['n_gpu'])
@@ -193,13 +200,14 @@ def main(args, config):
                     legal_move_san = {gs.board.san(legal_move): float(cls_prob) for legal_move, cls_prob
                                       in zip(legal_move_list[0], cls_vec[0])}
                     print(f'[INFO] Probabilities for moves: {legal_move_san}')
-                    cat = torch.distributions.Categorical(cls_vec[0] ** 5)
+                    cat = torch.distributions.Categorical(cls_vec[0])
 
                     print(f'[INFO] Endgame flag: {endgame_flag[0]:.2g}')
                     # Force legal move
                     while True:
 
                         sample_idx = cat.sample()
+                        # sample_idx = torch.argmax(cls_vec[0])
                         sample = legal_move_list[0][sample_idx]
 
                         print(f'[INFO] Move in uci: {sample}')

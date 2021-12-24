@@ -29,7 +29,7 @@ class BoardEmbeddingDataset(Dataset):
         # Piece probabilities
         target_prob_vector = torch.zeros(7)
         white_prob = 0  # 1 for white, 0 for black
-        ep_flag = 0
+        ep_flag = 0  # En passant 1 if available
         castling_right = 1  # 1 for there is right, 0 for there isn't
         turn = 1  # 1 for white, 0 for black
 
@@ -80,10 +80,10 @@ class BoardEmbeddingDataset(Dataset):
             turn = 0
 
         flags_vector = torch.tensor([white_prob, ep_flag, castling_right, turn])
-        return target_prob_vector, flags_vector
+        return idx, target_prob_vector, flags_vector
 
     def __len__(self):
-        return 38
+        return 36
 
 
 class MoveEmbeddingLoader(BaseDataLoader):
@@ -137,7 +137,7 @@ class MoveEmbeddingDataset(Dataset):
 
         coor_tensor = torch.tensor([coordinates_from[0], coordinates_from[1], coordinates_to[0], coordinates_to[1]]) / 7
 
-        return coor_tensor, promotion_prob
+        return word, coor_tensor, promotion_prob
 
     def __len__(self):
         return 4864
