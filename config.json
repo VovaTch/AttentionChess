@@ -4,7 +4,7 @@
 
     "arch": {
         "type": "AttChess",
-        "args": {"hidden_dim": 128,
+        "args": {"hidden_dim": 8,
             "num_heads": 8,
             "num_encoder": 5,
             "num_decoder": 5,

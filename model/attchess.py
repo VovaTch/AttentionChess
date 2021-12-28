@@ -4,10 +4,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import chess
 import math
+from typing import Optional
 from positional_encodings import PositionalEncoding2D
 
 from base.base_model import BaseModel
 from utils.util import word_to_move, board_to_embedding_coord, move_to_coordinate
+from model.chess_conv_attention import create_chess_kernel
+from .chess_conv_attention import ChessEncoderLayer
 
 
 class MLP(nn.Module):
@@ -30,32 +33,45 @@ class MLP(nn.Module):
 class AttChess(BaseModel):
     """Main model, new"""
 
-    def __init__(self, hidden_dim=256, num_heads=8, num_encoder=10, num_decoder=5, dropout=0.1, query_word_len=256):
+    def __init__(self, hidden_dim=8, num_heads=8, num_encoder=10, num_decoder=5, dropout=0.1, query_word_len=256,
+                 num_chess_conv_layers=2, p_embedding=True):
         super().__init__()
+
+        self.relu = nn.ReLU()
 
         # Basic constant
         self.hidden_dim = hidden_dim
         self.query_word_len = query_word_len
 
-        # Chess board learned positional embedding, and backbone embedding
-        self.positional_embedding = nn.Embedding(64, hidden_dim)
-        self.backbone_embedding = nn.Embedding(36, hidden_dim)
+        # Positional encoding
+        self.positional_embedding = PositionalEncoding2D(self.hidden_dim)
+        self.p_emb_flag = p_embedding
 
         # transformer encoder and decoder
-        self.chess_encoder = nn.TransformerEncoderLayer(batch_first=True, d_model=hidden_dim,
-                                                        nhead=num_heads, dropout=dropout)
+        self.chess_encoder = ChessEncoderLayer(d_model=hidden_dim, heads=num_heads, dropout=dropout)
         self.chess_encoder_stack = nn.TransformerEncoder(self.chess_encoder, num_encoder)
 
         self.chess_decoder = nn.TransformerDecoderLayer(batch_first=True, d_model=hidden_dim,
                                                         nhead=num_heads, dropout=dropout)
         self.chess_decoder_stack = nn.TransformerDecoder(self.chess_decoder, num_decoder)
 
-        # Move legality classification
-        # self.move_mlp = MLP(64, 4864, 4864, 2, dropout=dropout)
-
-        # Move classification embedding and MLP
-        self.query_embedding = nn.Embedding(4865, hidden_dim, padding_idx=4864)
         self.move_quality_cls_head = MLP(hidden_dim, hidden_dim, 1, 5, dropout=dropout)
+
+        # load board + move embeddings
+        self.backbone_embedding = nn.Embedding(36, hidden_dim)
+        # self.backbone_embedding.requires_grad_(requires_grad=False)
+        # b_emb_weights = torch.load('model/board_embedding.pth', map_location=torch.device('cpu'))
+        # self.backbone_embedding.load_state_dict(b_emb_weights)
+        self.query_embedding = nn.Embedding(4865, hidden_dim, padding_idx=4864)
+        # self.query_embedding.requires_grad_(requires_grad=False)
+        # m_emb_weights = torch.load('model/move_embedding.pth', map_location=torch.device('cpu') )
+        # self.query_embedding.load_state_dict(m_emb_weights)
+
+        self.conv_weights = []
+        self.num_conv = num_chess_conv_layers
+        # Creates a convolution layer
+        for idx in range(num_chess_conv_layers):
+            self.conv_weights.append(create_chess_kernel(out_channels=8, in_channels=8))
 
     def board_forward(self, boards: list[chess.Board]):
         """Takes a list of boards and converts them to tensors, gets a list of python-chess boards."""
@@ -82,14 +98,24 @@ class AttChess(BaseModel):
 
         batch_size = boards.size()[0]
 
+        if next(self.parameters()).is_cuda:
+            device = 'cuda'
+        else:
+            device = 'cpu'
+
         # Embedding + pos embedding
         hidden_embedding = self.backbone_embedding(boards)
-        flat_pos_embedding = self.positional_embedding.weight.unsqueeze(0).repeat(boards.size()[0], 1, 1)
-        transformer_input = hidden_embedding.flatten(1, 2) + flat_pos_embedding
+        for idx in range(self.num_conv):
+            hidden_embedding = F.conv2d(hidden_embedding, weight=self.conv_weights[idx].to(device), padding=7)
+            hidden_embedding = hidden_embedding if idx + 1 == self.num_conv else self.relu(hidden_embedding)
+
+        pose_embedding = self.positional_embedding(hidden_embedding) * self.p_emb_flag
+        transformer_input = hidden_embedding + pose_embedding
 
         # Transformer encoder + classification head
-        boards_flattened = boards.flatten(1, 2) / 36
-        encoder_output = self.chess_encoder(transformer_input)
+        boards_flattened = boards.flatten(1, 2)
+        encoder_output_board = self.chess_encoder(transformer_input)
+        encoder_output = encoder_output_board.flatten(1, 2)
 
         # If the moves are need to be learned
         if legal_move_tensor is None:
@@ -205,3 +231,41 @@ class MoveEmbTrainNet(nn.Module):
         return x_coor, x_prom
 
 
+class TransformerAuxDecoder(torch.nn.TransformerDecoder):
+    """A sub class for outputting all aux outputs"""
+
+    def __init__(self, decoder, num_layers, norm=None, aux_out_intervals=1):
+        super(TransformerAuxDecoder, self).__init__(decoder, num_layers, norm=norm)
+        self.aux_out_intervals = aux_out_intervals
+
+    def forward(self, tgt: torch.Tensor, memory: torch.Tensor, tgt_mask: Optional[torch.Tensor] = None,
+                memory_mask: Optional[torch.Tensor] = None, tgt_key_padding_mask: Optional[torch.Tensor] = None,
+                memory_key_padding_mask: Optional[torch.Tensor] = None):
+        r"""Pass the inputs (and mask) through the decoder layer in turn.
+
+        Args:
+            tgt: the sequence to the decoder (required).
+            memory: the sequence from the last layer of the encoder (required).
+            tgt_mask: the mask for the tgt sequence (optional).
+            memory_mask: the mask for the memory sequence (optional).
+            tgt_key_padding_mask: the mask for the tgt keys per batch (optional).
+            memory_key_padding_mask: the mask for the memory keys per batch (optional).
+
+        Shape:
+            see the docs in Transformer class.
+        """
+        output = tgt
+        output_aux = []
+
+        for idx, mod in enumerate(self.layers):
+            output = mod(output, memory, tgt_mask=tgt_mask,
+                         memory_mask=memory_mask,
+                         tgt_key_padding_mask=tgt_key_padding_mask,
+                         memory_key_padding_mask=memory_key_padding_mask)
+            if (idx + 1) % self.aux_out_intervals:
+                output_aux.append(output.clone())
+
+        if self.norm is not None:
+            output = self.norm(output)
+
+        return output, output_aux

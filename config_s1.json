@@ -5,11 +5,13 @@
     "arch": {
         "type": "AttChess",
         "args": {
-            "hidden_dim": 256,
-            "num_heads": 4,
-            "num_encoder": 8,
-            "num_decoder": 4,
-            "dropout": 0.1
+            "hidden_dim": 32,
+            "num_heads": 8,
+            "num_encoder": 6,
+            "num_decoder": 6,
+            "num_chess_conv_layers": 0,
+            "p_embedding": false,
+            "dropout": 0.0
         }
     },
     "data_loader": {
@@ -24,7 +26,7 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-2,
+            "lr": 1e-3,
             "weight_decay": 1e-4,
             "amsgrad": true
         }

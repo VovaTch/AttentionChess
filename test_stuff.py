@@ -20,33 +20,16 @@ def main():
     loader = RuleAttentionChessLoader(batch_size=4, collate_fn=collate_fn)
     attchess = AttChess()
     attchess = attchess.eval().to('cuda')
-    boardnet = BoardEmbTrainNet()
-    boardnet = boardnet.eval().to('cuda')
-    movenet = MoveEmbTrainNet()
-    movenet = movenet.eval().to('cuda')
     move = chess.Move.from_uci('e2e4')
     coordinates = move_to_coordinate(move)
 
+    for idx, (boards, quality_vector) in enumerate(loader):
+        quality_vector = quality_vector.to('cuda')
+        output_legal, output_quality = attchess.board_forward(boards)
+        break
+
     board_data_loader = BoardEmbeddingLoader(batch_size=8)
     move_data_loader = MoveEmbeddingLoader(batch_size=8)
-
-    for batch_idx, (board_state, piece_prob, properties) in enumerate(board_data_loader):
-        board_state, piece_prob, properties = board_state.to('cuda'), piece_prob.to('cuda'), properties.to('cuda')
-        print(batch_idx)
-        print(board_state)
-        print(piece_prob)
-        print(properties)
-        output_piece, output_prop = boardnet(board_state)
-        break
-
-    for batch_idx, (move_word, move_coord, promotion_prob) in enumerate(move_data_loader):
-        move_word, move_coord, promotion_prob = move_word.to('cuda'), move_coord.to('cuda'), promotion_prob.to('cuda')
-        print(batch_idx)
-        print(move_word)
-        print(move_coord * 7)
-        print(promotion_prob)
-        output_coor, output_prom = movenet(move_word)
-        break
 
     # game_roller = GameRoller(model_good=attchess, model_evil=attchess)
     # game_roller.roll_game(board, num_of_branches=3)

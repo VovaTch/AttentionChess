@@ -14,6 +14,9 @@ class GameState:
         self.move_log = []
         self.cap_white = []
         self.cap_black = []
+        self.is_white_checkmate = False
+        self.is_black_checkmate = False
+        self.is_draw = False
 
     def get_embedding_board(self):
         """Gets the embedding of the base board"""
@@ -71,6 +74,19 @@ class GameState:
         else:
             if self.convert_embedding_to_piece(pieces_captured_enc) != '-':
                 self.cap_black.append(self.convert_embedding_to_piece(pieces_captured_enc))
+
+        # Endgame conditions
+        if self.board.is_checkmate():
+            if not self.board.turn:
+                self.is_white_checkmate = True
+            else:
+                self.is_black_checkmate = True
+        elif self.board.is_stalemate() or self.board.is_repetition() or self.board.is_seventyfive_moves():
+            self.is_draw = True
+        else:
+            self.is_white_checkmate = False
+            self.is_black_checkmate = False
+            self.is_draw = False
 
         return True
 
