@@ -10,7 +10,7 @@ import torch
 
 import model.attchess as module_arch
 from gui.gui_engine import GameState
-from utils.util import prepare_device, board_to_embedding_coord
+from utils.util import prepare_device, board_to_embedding_coord, move_to_coordinate
 from parse_config import ConfigParser
 
 DIMENSION = 8
@@ -25,9 +25,10 @@ def load_images(args):
         IMAGES[piece] = p.transform.scale(p.image.load(f'gui/pieces/{piece}.png'), (args.width // 8, args.height // 8))
 
 
-def draw_game_state(screen, gs, args):
+def draw_game_state(screen, gs, args, player_clicks):
     """Draws the game square"""
     draw_board(screen, args)  # Draw the black and white board
+    highlight_sqares(screen, gs, args, player_clicks)
     draw_pieces(screen, args, gs.get_embedding_board())
 
 
@@ -41,6 +42,100 @@ def draw_board(screen, args, w_color='light gray', b_color='gray'):
             color = colors[(row + column) % 2]
             p.draw.rect(screen, color, p.Rect(column * args.width // 8, row * args.height // 8,
                                               args.width // 8, args.height // 8))
+
+
+def draw_text(screen, args, text):
+    """Writes the text on the screen"""
+
+    # init
+    p.font.init()
+
+    # Black border
+    font = p.font.SysFont("urwgothic", 32, True, False)
+    text_object = font.render(text, 0, p.Color('black'))
+    text_location = p.Rect(0, 0, args.width, args.height).move(args.width / 2 - text_object.get_width() / 2,
+                                                               args.height / 2 - text_object.get_height())
+    screen.blit(text_object, text_location.move(2, 2))
+    screen.blit(text_object, text_location.move(2, -2))
+    screen.blit(text_object, text_location.move(-2, 2))
+    screen.blit(text_object, text_location.move(-2, -2))
+
+    # White innards
+    font = p.font.SysFont("urwgothic", 32, True, False)
+    text_object = font.render(text, 0, p.Color('light yellow'))
+    text_location = p.Rect(0, 0, args.width, args.height).move(args.width / 2 - text_object.get_width() / 2,
+                                                               args.height / 2 - text_object.get_height())
+    screen.blit(text_object, text_location)
+
+
+def highlight_sqares(screen, gs:GameState, args, player_clicks,
+                     highlight_piece_color='red', highlight_move_color='orange'):
+    """Draws highlights for pieces and possible moves"""
+    if len(player_clicks) == 0:
+        return
+
+    move_coor_from = player_clicks[0][0] + 8 * (7 - player_clicks[0][1])
+
+    # Collect all the moves to be highlighted
+    display_list = []
+    for move in gs.board.legal_moves:
+        if move.from_square == move_coor_from:
+            display_list.append(move)
+
+    # If no square was selected
+    if len(display_list) == 0:
+        return
+
+    # If square was selected
+    surface = p.Surface((args.width // 8, args.height // 8))
+    surface.set_alpha(100)
+    surface.fill(p.Color(highlight_piece_color))
+
+    screen.blit(surface, (player_clicks[0][0] * args.width // 8, player_clicks[0][1] * args.height // 8))
+
+    surface.fill(p.Color(highlight_move_color))
+    for move in display_list:
+        move_word = move.to_square
+        column, row = int(move_word % 8), int(move_word // 8)
+        screen.blit(surface, (column * args.width // 8, (7 - row) * args.height // 8))
+
+
+def animate_move(screen, gs: GameState, args, move: chess.Move, clock, frames_per_square=3,
+                 w_color='light gray', b_color='gray'):
+
+    colors = [p.Color(w_color), p.Color(b_color)]
+
+    # Convert move to coordinates
+    from_square = move.from_square
+    to_square = move.to_square
+    row_from, colomn_from = int(from_square % 8), int(from_square // 8)
+    row_to, column_to = int(to_square % 8), int(to_square // 8)
+
+    # Creating the mid coordinates
+    d_r = row_to - row_from
+    d_c = column_to - colomn_from
+    frame_count = (abs(d_r) + abs(d_c)) * frames_per_square
+    for frame in range(frame_count + 1):
+        row_mid, column_mid = row_from + d_r * frame / frame_count, colomn_from + d_c * frame / frame_count
+
+        draw_board(screen, args, w_color=w_color, b_color=b_color)
+        embedded_board = board_to_embedding_coord(gs.board)
+        draw_pieces(screen, args, embedded_board)
+
+        # Erase the moved piece
+        color = colors[(row_to + (1 + column_to)) % 2]
+        p.draw.rect(screen, color, p.Rect(row_to * args.width // 8, (7 - column_to) * args.height // 8,
+                                          args.width // 8, args.height // 8))
+
+        # Draw the moving piece
+        embedded_board_flipped = torch.flip(embedded_board, [0])
+        piece = extract_piece_from_embedding(embedded_board[column_to, row_to])
+        screen.blit(IMAGES[piece], p.Rect(row_mid * args.width // 8, (7 - column_mid) * args.height // 8,
+                                          args.width // 8, args.height // 8))
+
+        # Display on screen
+        p.display.flip()
+        clock.tick(args.max_fps)
 
 
 def draw_promotion_choice(screen, args, color='dark gray'):
@@ -102,37 +197,43 @@ def draw_pieces(screen, args, embedding_board):
     for row in range(DIMENSION):
         for column in range(DIMENSION):
 
-            # Check for pieces from embedding
-            if embedding_board_flipped[row, column] in [7, 25]:
-                piece = 'pawnw'  # white pawn
-            elif embedding_board_flipped[row, column] in [8, 26]:
-                piece = 'knightw'  # white knight
-            elif embedding_board_flipped[row, column] in [9, 27]:
-                piece = 'bishopw'  # white bishop
-            elif embedding_board_flipped[row, column] in [10, 28]:
-                piece = 'rookw'  # white rook
-            elif embedding_board_flipped[row, column] in [11, 29]:
-                piece = 'queenw'  # white queen
-            elif embedding_board_flipped[row, column] in [12, 14, 30, 32]:
-                piece = 'kingw'  # white king
-            elif embedding_board_flipped[row, column] in [5, 23]:
-                piece = 'pawnb'  # black pawn
-            elif embedding_board_flipped[row, column] in [4, 22]:
-                piece = 'knightb'  # black knight
-            elif embedding_board_flipped[row, column] in [3, 21]:
-                piece = 'bishopb'  # black bishop
-            elif embedding_board_flipped[row, column] in [2, 20]:
-                piece = 'rookb'  # black rook
-            elif embedding_board_flipped[row, column] in [1, 19]:
-                piece = 'queenb'  # black queen
-            elif embedding_board_flipped[row, column] in [0, 15, 18, 33]:
-                piece = 'kingb'  # black king
-            else:
-                piece = None
+            piece = extract_piece_from_embedding(embedding_board_flipped[row, column])
 
             if piece is not None:
                 screen.blit(IMAGES[piece], p.Rect(column * args.width // 8, row * args.height // 8,
                                                   args.width // 8, args.height // 8))
+
+
+def extract_piece_from_embedding(emb):
+    # Check for pieces from embedding
+    if emb in [7, 25]:
+        piece = 'pawnw'  # white pawn
+    elif emb in [8, 26]:
+        piece = 'knightw'  # white knight
+    elif emb in [9, 27]:
+        piece = 'bishopw'  # white bishop
+    elif emb in [10, 28]:
+        piece = 'rookw'  # white rook
+    elif emb in [11, 29]:
+        piece = 'queenw'  # white queen
+    elif emb in [12, 14, 30, 32]:
+        piece = 'kingw'  # white king
+    elif emb in [5, 23]:
+        piece = 'pawnb'  # black pawn
+    elif emb in [4, 22]:
+        piece = 'knightb'  # black knight
+    elif emb in [3, 21]:
+        piece = 'bishopb'  # black bishop
+    elif emb in [2, 20]:
+        piece = 'rookb'  # black rook
+    elif emb in [1, 19]:
+        piece = 'queenb'  # black queen
+    elif emb in [0, 15, 18, 33]:
+        piece = 'kingb'  # black king
+    else:
+        piece = None
+
+    return piece
 
 
 def main(args, config):
@@ -170,6 +271,7 @@ def main(args, config):
     player_clicks = []
     promotion_flag = False
     selected_piece = None  # Selected piece for promotion
+    undo_flag = False
 
     # game loop
     running = True
@@ -190,6 +292,7 @@ def main(args, config):
                     print('[INFO] Undoing move')
                     sq_selected = ()
                     player_clicks = []
+                    undo_flag = True
 
                 elif keys[p.K_SPACE]:
                     print('[INFO] Bot move')
@@ -250,11 +353,23 @@ def main(args, config):
                     selected_piece = None
                     if not valid_move:
                         print('[WARN] Illegal move!!!')
+                    else:
+                        animate_move(screen, gs, args, gs.board.peek(), clock)
+                        undo_flag = False
                     sq_selected = ()  # Zero out the player inputs
                     if not promotion_flag:
                         player_clicks = []
 
-        draw_game_state(screen, gs, args)
+        draw_game_state(screen, gs, args, player_clicks)
+        if not undo_flag:
+            if gs.is_white_checkmate:
+                draw_text(screen, args, 'WHITE CHECKMATE')
+            elif gs.is_black_checkmate:
+                draw_text(screen, args, 'BLACK CHECKMATE')
+            elif gs.is_draw:
+                draw_text(screen, args, 'DRAW')
+            undo_flag = False
+
         if promotion_flag:
             draw_promotion_choice(screen, args)
         clock.tick(args.max_fps)

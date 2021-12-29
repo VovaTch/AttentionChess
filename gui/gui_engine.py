@@ -43,7 +43,6 @@ class GameState:
         pieces_moved_enc = self.get_embedding_board()[(7 - player_clicks[0][1]), player_clicks[0][0]]
         move_coor_to = player_clicks[1][0] + 8 * (7 - player_clicks[1][1])
         pieces_captured_enc = self.get_embedding_board()[(7 - player_clicks[1][1]), player_clicks[1][0]]
-          # TODO: Handle promotions
 
         # Pawn promotions
         if player_clicks[1][1] in [0, 7] and promotion is not None:
