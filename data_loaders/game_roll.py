@@ -25,89 +25,58 @@ class GameRoller:
         self.result = {}  # a dict that describes what happened and with how many moves
 
     @torch.no_grad()
-    def roll_game(self, init_board: chess.Board, num_of_branches=1):
+    def roll_game(self, init_board: chess.Board, num_of_branches=1, expansion_constant=0.0):
         """Plays the entire game"""
-        # torch.multiprocessing.set_start_method('spawn') TODO: CODE THE FUNCTION, MAYBE APPLY MULTIPLE GAMES SIMULTANEOUSLY
 
-        # Initialization, limiting game length to the constant
-        move_count = init_board.fullmove_number
-        turn = init_board.turn
-        is_good = True
+        # Score function  TODO: this is hard coded, change
+        score = ScoreWinFast(100)
 
-        # Add board to buffer
-        self.board_buffer.append([copy.deepcopy(init_board) for idx in range(num_of_branches)])
-        board_idx_buffer = [[idx for idx in range(num_of_branches)]]
-
+        # Initializing board list
+        board_init = [copy.deepcopy(init_board) for idx in range(num_of_branches)]
+        board_list = board_init
+        current_nodes = [BoardNode(board_ind, None, score, self.device) for board_ind in board_init]
+        init_node = current_nodes[0]
+        init_flag = True # Use this flag for initial sampling, such that we can collapse everything to a single list+ tensor
+        
         while True:
-
-            if is_good:
-                outputs_legal, outputs_class_vec = self.model_good.board_forward(self.board_buffer[-1])
-                legal_move_list, cls_vec, endgame_flag = self.model_good.post_process(outputs_legal, outputs_class_vec)
-            else:
-                outputs_legal, outputs_class_vec = self.model_evil.board_forward(self.board_buffer[-1])
-                legal_move_list, cls_vec, endgame_flag = self.model_evil.post_process(outputs_legal, outputs_class_vec)
-
-            # New board idx buffer
-            new_board_idx = copy.copy(board_idx_buffer[-1])
-            board_idx_buffer.append(new_board_idx)
-
-            # Collect individual boards and moves. If one game ends, reroll reward to the beginning.
-            model_sub_buffer = []
-            move_sub_buffer = []
-            move_vec_sub_buffer = []
-            reward_vec_sub_buffer = []
-
-            # Simpler one
-            init_move_list = [move for move in init_board.legal_moves]
-            final_probability_vec = torch.zeros((len(init_move_list))).to(self.device) + 1e-10
-
-            for idx, (legal_move_ind, cls_vec_ind) in enumerate(zip(legal_move_list, cls_vec)):
-
-                # Sample moves
-                cat = torch.distributions.Categorical(cls_vec_ind)
-                sample_idx = cat.sample()
-                sample = legal_move_ind[sample_idx]
-                move_sub_buffer.append(sample)
-
-                # Move to buffer
-                copied_board = copy.deepcopy(self.board_buffer[-1][idx])
-                copied_board.push(sample)
-                model_sub_buffer.append(copied_board)
-                move_vec_sub_buffer.append(copied_board.legal_moves)
-                reward_vec_sub_buffer.append(torch.zeros(len(copied_board.legal_moves)).to(self.device))
-
-                # End game conditions
-                if model_sub_buffer[-1].is_checkmate():
-                    print(f'Victory to white: {self.board_buffer[-1][idx].turn}')  # TODO: TEMP
-                    model_sub_buffer.pop()
-                    init_move_idx = board_idx_buffer[-1][idx]  # index of initial move
-                    board_idx_buffer[-1].pop()
-
-
-                if model_sub_buffer[-1].is_stalemate():
-                    print('Stalemate')
-                    model_sub_buffer.pop()
-                    board_idx_buffer[-1].pop()
-                if model_sub_buffer[-1].is_insufficient_material():
-                    print('Insufficient Material draw')
-                    model_sub_buffer.pop()
-                    board_idx_buffer[-1].pop()
-                if model_sub_buffer[-1].can_claim_threefold_repetition():
-                    print('Repetition')
-                    model_sub_buffer.pop()
-                    board_idx_buffer[-1].pop()
-
-            self.board_buffer.append(model_sub_buffer)
-            self.move_buffer.append(move_sub_buffer)
-
-            print(self.board_buffer[-1][0].fullmove_number)
-
-            # Too many moves break
-            if self.board_buffer[-1][0].fullmove_number > self.move_limit:
-                # TODO: There may be more
+            
+            board_list_new = []
+            new_nodes = []
+            
+            used_model = self.model_good if board_list[0].turn else self.model_evil  
+            raw_legals, raw_outputs = used_model.board_forward(board_list)
+            legal_moves, quality_vectors, _ = used_model.post_process(raw_legals, raw_outputs)
+            
+            for current_node, legal_move, quality_vec in zip(current_nodes, legal_moves, quality_vectors):
+                
+                # Check if we reached the endgame
+                move_num = current_node.moves_performed
+                if move_num + 1 >= 50:
+                    sample_move = False
+                else:
+                    sample_move = True
+                    
+                # Create node; append to new list only if the endgame wasn't reached
+                if init_flag:
+                    new_node = init_node.sample_move(legal_move, quality_vec, sample_move=sample_move)
+                else:
+                    new_node = current_node.sample_move(legal_move, quality_vec, sample_move=sample_move)
+                    new_node.score_function.last_move_idx = move_num
+                
+                if not new_node.endgame_flag:
+                    new_nodes.append(new_node)
+                    board_list_new.append(new_node.board)
+                else:
+                    new_node.propagate_score()
+                
+            current_nodes = new_nodes
+            board_list = board_list_new
+            
+            # Check if all nodes reached endgame state
+            if len(current_nodes) == 0 or move_num > self.move_limit:
                 break
-
-        pass
+            
+        self.board_buffer, self.reward_vec_buffer = init_node.flatten_tree()  # TODO: perform additive operation
 
     @torch.no_grad()
     def reset_buffers(self):
@@ -124,7 +93,104 @@ class GameRoller:
         return self.move_buffer
 
 
+class BoardNode:
+    """Create a board node for the MCTS.
+    Include forward rolls for moves and backward rolls for quality vector updates. Score is based on length of game and the board"""
+
+    def __init__(self, board: chess.Board, parent, score_function, device='cuda'):
+
+        self.device = device
+
+        self.score_function = score_function
+        self.num_legal_moves = 0
+        self.legal_move_list = []
+        for move in board.legal_moves:
+            self.num_legal_moves += 1
+            self.legal_move_list.append(move)
+
+        self.quality_vector_logit = torch.zeros(
+            self.num_legal_moves).to(device)
+
+        self.parent = parent  # Board node if not first move, None if it is
+        self.board = board
+        self.children = []
+        self.endgame_flag, self.result = self._is_game_end()
+        self.moves_performed = 0
+
+    def perform_move(self, move):
+        """Get a move and create a child node"""
+        
+        new_child = BoardNode(copy.deepcopy(self.board.push(move)), self, self.score_function, device=self.device,
+                              endgame_flag=self.endgame_flag)
+        new_child.moves_performed += 1
+        self.children.append(new_child)
+        return new_child
+
+    def sample_move(self, legal_move_list, quality_vector, sample_move=True):
+        """Sample a move given outputs from an engine and create a child node"""
+        
+        if sample_move:
+            cat = torch.distributions.categorical(quality_vector)
+            sample_idx = cat.sample()
+        else:
+            sample_idx = torch.argmax(quality_vector)
+        sample = legal_move_list[0][sample_idx]
+        new_child = self.perform_move(sample)
+
+        return new_child
+
+    def propagate_score(self):
+        """Once the game has ended, propogate down the score"""
+
+        # If there is no parent, we reached the bottom of the barrel
+        if self.parent is None:
+            return
+
+        self.parent.score_function = self.score_function
+        current_score = self.score_function(self.moves_performed, self.board)
+        last_move = self.board.peek()
+        self.parent.quality_vector_logit[self.parent.quality_vector_logit ==
+                                         last_move] += current_score * self.result * self.board.turn  # TODO: Check if works
+        self.parent.propagate_score()  # Recursively apply the score propogation
+
+    def flatten_tree(self):
+        """Call on tree root to collapse all boards into a single vector, with the corresponding quality vectors. 
+        This is the most essential method, it prepares the data for learning."""
+
+        # If there is no child, i.e. the game ended, return an empty stack. Otherwise, start collecting
+        board_list = list()
+        move_tensor = torch.zeros((0, 255)).to(self.device)
+
+        if len(self.children) == 0:
+            return board_list, move_tensor
+
+        # Extract everything from the children nodes recursively
+        for child in self.children:
+            ind_board, ind_move_tensor = child.flatten_tree()
+            if ind_move_tensor.dim() == 1:
+                ind_move_tensor = ind_move_tensor.unsqueeze(0)
+            board_list.extend(ind_board)
+            move_tensor = torch.cat((move_tensor, ind_move_tensor), 0)
+
+        # Return the collapsed tree
+        return board_list, move_tensor
+
+    def _is_game_end(self):
+        """Checks if the game ends."""
+        if self.board.is_checkmate():
+            return True, -1 * self.board.turn + 1 * (not self.board.turn)
+        elif self.board.is_stalemate() or self.board.is_repetition() or \
+                self.board.is_seventyfive_moves() or self.board.is_insufficient_material():
+            return True, 0
+        return False, 0
 
 
+class ScoreWinFast:
 
+    def __init__(self, moves_to_end, score_max=10):
+        self.last_move_idx = moves_to_end
+        self.score_max = score_max
 
+    def __call__(self, move_idx, board: chess.Board):
+        score = self.score_max / (self.moves_to_end - move_idx)
+        return score
