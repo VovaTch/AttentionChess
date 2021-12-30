@@ -119,9 +119,9 @@ class BoardNode:
 
     def perform_move(self, move):
         """Get a move and create a child node"""
-        
-        new_child = BoardNode(copy.deepcopy(self.board.push(move)), self, self.score_function, device=self.device,
-                              endgame_flag=self.endgame_flag)
+        board_copy = copy.deepcopy(self.board)
+        board_copy.push(move)
+        new_child = BoardNode(board_copy, self, self.score_function, device=self.device)
         new_child.moves_performed += 1
         self.children.append(new_child)
         return new_child
@@ -130,11 +130,11 @@ class BoardNode:
         """Sample a move given outputs from an engine and create a child node"""
         
         if sample_move:
-            cat = torch.distributions.categorical(quality_vector)
+            cat = torch.distributions.Categorical(quality_vector)
             sample_idx = cat.sample()
         else:
             sample_idx = torch.argmax(quality_vector)
-        sample = legal_move_list[0][sample_idx]
+        sample = legal_move_list[sample_idx]
         new_child = self.perform_move(sample)
 
         return new_child

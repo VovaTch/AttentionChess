@@ -31,8 +31,8 @@ def main():
     board_data_loader = BoardEmbeddingLoader(batch_size=8)
     move_data_loader = MoveEmbeddingLoader(batch_size=8)
 
-    # game_roller = GameRoller(model_good=attchess, model_evil=attchess)
-    # game_roller.roll_game(board, num_of_branches=3)
+    game_roller = GameRoller(model_good=attchess, model_evil=attchess)
+    game_roller.roll_game(board, num_of_branches=3)
 
     print(1111)
 
