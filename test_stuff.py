@@ -4,13 +4,14 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
+import copy
 
 from utils.util import board_to_tensor, legal_move_mask, move_to_tensor, \
     board_to_embedding_coord, move_to_coordinate
 from utils.matcher import match_moves
 from model.attchess import AttChess, BoardEmbTrainNet, MoveEmbTrainNet
 from data_loaders.game_roll import GameRoller
-from data_loaders.dataloader import RuleAttentionChessLoader, collate_fn, BoardEmbeddingLoader, MoveEmbeddingLoader
+from data_loaders.dataloader import RuleAttentionChessLoader, collate_fn, BoardEmbeddingLoader, MoveEmbeddingLoader, SelfPlayChessLoader
 from model import loss
 
 
@@ -30,13 +31,13 @@ def main():
     move = chess.Move.from_uci('e2e4')
     coordinates = move_to_coordinate(move)
 
-    for idx, (boards, quality_vector) in enumerate(loader):
-        quality_vector = quality_vector.to('cuda')
-        output_legal, output_quality = attchess.board_forward(boards)
-        break
-
-    board_data_loader = BoardEmbeddingLoader(batch_size=8)
-    move_data_loader = MoveEmbeddingLoader(batch_size=8)
+    game_roller = GameRoller(copy.deepcopy(attchess), copy.deepcopy(attchess), device='cuda')
+    self_play_loader = SelfPlayChessLoader(batch_size=32, game_roller=game_roller, collate_fn=collate_fn)
+    
+    for idx, (board_list, quality_tensor) in enumerate(self_play_loader):
+        quality_tensor[:, :-1] = quality_tensor[:, :-1].softmax(dim=1)
+        print(quality_tensor)
+        break    
 
     game_roller = GameRoller(model_good=attchess, model_evil=attchess, move_limit=300)
     game_roller.roll_game(board, num_of_branches=10  , expansion_constant=0.008)
@@ -45,4 +46,5 @@ def main():
 
 
 if __name__ == '__main__':
+    torch.multiprocessing.set_start_method('spawn')  # Necessary for this to work; maybe it will run out of memory like that
     main()

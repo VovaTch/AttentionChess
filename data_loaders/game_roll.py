@@ -30,6 +30,9 @@ class GameRoller:
     def roll_game(self, init_board: chess.Board, num_of_branches=1, expansion_constant=0.0):
         """Plays the entire game"""
 
+        # Keep track of branches, wins, draws, and losses
+        results_dict = {'branches': 0, 'white wins': 0, 'black wins': 0, 'draws': 0}
+
         # Score function  TODO: this is hard coded, change
         score = ScoreWinFast(100)
 
@@ -77,15 +80,22 @@ class GameRoller:
                             new_nodes.append(new_node)
                             board_list_new.append(new_node.board)
                         else:
-                            print('Game ended')
+                            # Log the scores
+                            score_out = new_node._is_game_end()
+                            results_dict['branches'] += 1
+                            if score_out[1] == 1:
+                                results_dict['white wins'] += 1
+                            elif score_out[1] == -1:
+                                results_dict['black wins'] += 1
+                            elif score_out[0] is True and score_out[1] == 0:
+                                results_dict['draws'] += 1
+                            
                             new_node.propagate_score()
                         
                         # Create random expansion
                         random_num = random.uniform(0, 1)
                         if random_num > expansion_constant:
                             break
-                        else:
-                            print('New branch')
                 
                     
             # After the initial roll, the next rolls are from the tree.
@@ -98,12 +108,14 @@ class GameRoller:
             if len(current_nodes) == 0 or move_num > self.move_limit:
                 break
             
+        print(f'Results of all the branches: {results_dict}')
         self.board_buffer, self.reward_vec_buffer = init_node.flatten_tree()  # TODO: perform additive operation
 
     @torch.no_grad()
     def reset_buffers(self):
 
         self.board_buffer = []
+        self.reward_vec_buffer = []
         self.move_buffer = []
 
     @torch.no_grad()
@@ -145,7 +157,6 @@ class BoardNode:
         board_copy.push(move)
         new_child = BoardNode(board_copy, self, self.score_function, device=self.device, moves_performed=self.moves_performed)
         new_child.moves_performed += 1
-        print(f'MOves performed: {new_child.moves_performed}')
         self.children.append(new_child)
         return new_child
 
@@ -187,7 +198,6 @@ class BoardNode:
         move_tensor = torch.zeros((0, 256)).to(self.device)
 
         if len(self.children) == 0:
-            print(f'Result: {self._is_game_end()}')
             return [], move_tensor
         else:
             # board_list = [child.board for child in self.children if len(child.children) != 0]

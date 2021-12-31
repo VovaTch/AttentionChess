@@ -1,9 +1,10 @@
 import copy
+import gc
 
 import numpy as np
 import torch
 from torchvision.utils import make_grid
-import colorama
+from colorama import Fore
 
 from base import BaseTrainer
 from utils.util import inf_loop, MetricTracker
@@ -14,7 +15,7 @@ class Trainer(BaseTrainer):
     Trainer class
     """
     def __init__(self, model, criterion, metric_ftns, optimizer, config, device,
-                 data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None):
+                 data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None, move_limit=125):
         super().__init__(model, criterion, metric_ftns, optimizer, config)
         self.config = config
         self.device = device
@@ -30,6 +31,7 @@ class Trainer(BaseTrainer):
         self.do_validation = self.valid_data_loader is not None
         self.lr_scheduler = lr_scheduler
         self.log_step = int(1)
+        self.move_limit = move_limit
 
         self.train_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
         self.valid_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
@@ -37,49 +39,52 @@ class Trainer(BaseTrainer):
     def _train_epoch(self, epoch):
         """
         Training logic for an epoch
+
         :param epoch: Integer, current training epoch.
         :return: A log that contains average loss and metric in this epoch.
         """
         self.model.train()
         self.train_metrics.reset()
-        for batch_idx, (board, turn, score) in enumerate(self.data_loader):
+        self.logger.info(Fore.YELLOW + '\n-------------------------<<TRAINING>>-----------------------\n'
+                         + Fore.RESET)
 
-            for idx in range(board.size()[0]):
-                self.logger.debug(f'Game {idx+1} result is: {torch.max(score[idx])}')
+        for batch_idx, (board, quality) in enumerate(self.data_loader):
 
-            board, score = board.to(self.device), score.to(self.device)
-            board = board.squeeze()  # TODO: Temp solution, if I can train with larger batch sizes it can be good
-            score = score.squeeze()
+            if self.device == 'cuda':
+                torch.cuda.empty_cache()
 
+            quality = quality.to(self.device)
             self.optimizer.zero_grad()
-            output = self.model(board, turn)
-            loss = self.criterion(board, turn, predicted_logits=output, played_logits=score)
+
+            _, output_quality = self.model.board_forward(board)
+            loss_dict = self.criterion(output_quality, quality)
+            loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
+                        for loss_type in self.config['loss_weights']])
             loss.backward()
             self.optimizer.step()
 
             self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
             self.train_metrics.update('loss', loss.item())
             for met in self.metric_ftns:
-                self.train_metrics.update(met.__name__, met(board, turn, predicted_logits=output, played_logits=score))
+                self.train_metrics.update(met.__name__, met(output_quality, quality, self.criterion))
 
-            if batch_idx % self.log_step == 0:
-                self.logger.debug('Train Epoch: {} {} Loss: {:.6f}'.format(
-                    epoch,
-                    self._progress(batch_idx),
-                    loss.item()))
+            if (batch_idx + 1) % 10 == 0:
+                self.logger.debug(Fore.GREEN + f'Train Epoch: {epoch} {self._progress(batch_idx)} '
+                                               f'Loss: ' + Fore.CYAN + f'{loss.item():.6f}' + Fore.RESET)
+            if self.device == 'cuda':
+                torch.cuda.empty_cache()
 
             if batch_idx == self.len_epoch:
                 break
-
-            # Update the game generating models
-            self.data_loader.dataset.game_roller.model_good = copy.deepcopy(self.model)
-            self.data_loader.dataset.game_roller.model_evil = copy.deepcopy(self.model)
+            
+            self.data_loader.dataset.good_engine = copy.deepcopy(self.model)
 
         log = self.train_metrics.result()
 
         if self.do_validation:
             val_log = self._valid_epoch(epoch)
             log.update(**{'val_'+k : v for k, v in val_log.items()})
+
 
         if self.lr_scheduler is not None:
             self.lr_scheduler.step()
@@ -88,25 +93,31 @@ class Trainer(BaseTrainer):
     def _valid_epoch(self, epoch):
         """
         Validate after training an epoch
+
         :param epoch: Integer, current training epoch.
         :return: A log that contains information about validation
         """
         self.model.eval()
         self.valid_metrics.reset()
         with torch.no_grad():
-            for batch_idx, (board, turn, score) in enumerate(self.data_loader):
-                board, score = board.to(self.device), score.to(self.device)
-                board = board.squeeze()  # TODO: Temp solution, if I can train with larger batch sizes it can be good
-                score = score.squeeze()
 
-                output = self.model(board, turn)
-                loss = self.criterion(board, turn, predicted_logits=output, played_logits=score)
+            self.logger.info(Fore.YELLOW + '\n-------------------------<<EVALUATION>>-----------------------\n'
+                             + Fore.RESET)
+
+            for batch_idx, (board, quality) in enumerate(self.valid_data_loader):
+
+                quality = quality.to(self.device)
+
+                output_legal_mat, output_quality = self.model.board_forward(board)
+                loss_dict = self.criterion(output_quality, quality)
+                loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
+                            for loss_type in self.config['loss_weights']])
 
                 self.writer.set_step((epoch - 1) * len(self.valid_data_loader) + batch_idx, 'valid')
                 self.valid_metrics.update('loss', loss.item())
                 for met in self.metric_ftns:
-                    self.valid_metrics.update(met.__name__, met(board, turn, predicted_logits=output,
-                                                                played_logits=score))
+                    self.valid_metrics.update(met.__name__, met(output_quality, quality,
+                                                                self.criterion))
                 # self.writer.add_image('input', make_grid(board.cpu(), nrow=8, normalize=True))
 
         # add histogram of model parameters to the tensorboard

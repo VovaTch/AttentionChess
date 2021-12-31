@@ -1,17 +1,19 @@
 import argparse
 import collections
+import copy
 
 import torch
 import numpy as np
 
 import data_loaders.dataloader as module_data
+import data_loaders.game_roll as module_roller
 import model.loss as module_loss
 import model.metric as module_metric
 import model.attchess as module_arch
 from parse_config import ConfigParser
 from trainer.trainer_s2_single import Trainer
 from utils.util import prepare_device
-from data_loaders.game_roll import GameRoller
+from data_loaders.dataloader import collate_fn
 
 
 # fix random seeds for reproducibility
@@ -35,23 +37,24 @@ def main(config):
     if len(device_ids) > 1:
         model = torch.nn.DataParallel(model, device_ids=device_ids)
 
-    # Prepare adversarial model
-    adversarial_model = model
-    game_roller = GameRoller(model, model)
-
     # setup data_loader instances
-    data_loader = config.init_obj('data_loader', module_data, game_roller=game_roller,
-                                  adversarial_model=adversarial_model)
+    game_roller = config.init_obj('game_roller', module_roller, 
+                                  model_good=copy.deepcopy(model), model_evil=copy.deepcopy(model), device=device)
+    data_loader = config.init_obj('data_loader', module_data, collate_fn=collate_fn, game_roller=game_roller)
     valid_data_loader = data_loader.split_validation()
 
     # get function handles of loss and metrics
-    criterion = getattr(module_loss, config['loss'])
+    criterion = config.init_obj('loss', module_loss)
     metrics = [getattr(module_metric, met) for met in config['metrics']]
 
     # build optimizer, learning rate scheduler. delete every lines containing lr_scheduler for disabling scheduler
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
     optimizer = config.init_obj('optimizer', torch.optim, trainable_params)
     lr_scheduler = config.init_obj('lr_scheduler', torch.optim.lr_scheduler, optimizer)
+
+    torch.autograd.set_detect_anomaly(True)
+    # data_loader.dataset.good_engine = game_roller.model_good
+    # data_loader.dataset.evil_engine = game_roller.model_evil
 
     trainer = Trainer(model, criterion, metrics, optimizer,
                       config=config,
@@ -65,10 +68,10 @@ def main(config):
 
 if __name__ == '__main__':
 
-    torch.multiprocessing.set_start_method('spawn')  # TODO: This is necessary for the game generating code to work
+    torch.multiprocessing.set_start_method('spawn')  # Necessary for this to work; maybe it will run out of memory like that
 
     args = argparse.ArgumentParser(description='PyTorch Template')
-    args.add_argument('-c', '--config', default='config.json', type=str,
+    args.add_argument('-c', '--config', default='config_s2.json', type=str,
                       help='config file path (default: None)')
     args.add_argument('-r', '--resume', default=None, type=str,
                       help='path to latest checkpoint (default: None)')
