@@ -37,10 +37,11 @@ def main():
     for idx, (board_list, quality_tensor) in enumerate(self_play_loader):
         quality_tensor[:, :-1] = quality_tensor[:, :-1].softmax(dim=1)
         print(quality_tensor)
-        break    
+        # if idx == 2:
+        #     break    
 
     game_roller = GameRoller(model_good=attchess, model_evil=attchess, move_limit=300)
-    game_roller.roll_game(board, num_of_branches=10  , expansion_constant=0.008)
+    game_roller.roll_game(board, num_of_branches=1  , expansion_constant=0.02)
 
     print(1111)
 

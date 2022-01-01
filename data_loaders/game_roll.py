@@ -110,6 +110,7 @@ class GameRoller:
             
         print(f'Results of all the branches: {results_dict}')
         self.board_buffer, self.reward_vec_buffer = init_node.flatten_tree()  # TODO: perform additive operation
+        print(2222)
 
     @torch.no_grad()
     def reset_buffers(self):
@@ -185,8 +186,9 @@ class BoardNode:
         current_score = self.score_function(self.moves_performed, self.board)
         last_move = self.board.peek()
         self.parent.result = self.result
+        result_marker = self.result if self.result != 0 else -turn_variable
         quality_idx = [idx for idx, move in enumerate(self.parent.legal_move_list) if move == last_move]
-        self.parent.quality_vector_logit[quality_idx[0]] += current_score * self.result * turn_variable  # TODO: Check if works. The 1 replaced the result
+        self.parent.quality_vector_logit[quality_idx[0]] += current_score * result_marker * turn_variable  # TODO: Check if works. The 1 replaced the result
         self.parent.propagate_score()  # Recursively apply the score propogation
 
     def flatten_tree(self):

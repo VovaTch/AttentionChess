@@ -29,7 +29,7 @@
             "validation_split": 0.01,
             "num_workers": 1,
             "num_of_branches": 10,
-            "expansion_constant": 0.008
+            "expansion_constant": 0.010
         }
     },
     "optimizer": {

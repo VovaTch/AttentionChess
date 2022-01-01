@@ -77,7 +77,7 @@ class Trainer(BaseTrainer):
             if batch_idx == self.len_epoch:
                 break
             
-            self.data_loader.dataset.good_engine = copy.deepcopy(self.model)
+            self.data_loader.set_engines(copy.deepcopy(self.model), self.data_loader.dataset.evil_engine)
 
         log = self.train_metrics.result()
 

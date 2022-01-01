@@ -12,7 +12,9 @@ from .game_roll import GameRoller
 
 
 class BoardEmbeddingLoader(BaseDataLoader):
-    """Dataloader for board square embedding training, 36 possible words."""
+    """
+    Dataloader for board square embedding training, 36 possible words.
+    """
     def __init__(self, batch_size, shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256):
 
         self.dataset = BoardEmbeddingDataset()
@@ -20,12 +22,16 @@ class BoardEmbeddingLoader(BaseDataLoader):
 
 
 class BoardEmbeddingDataset(Dataset):
-    """Dataloader for board square embedding training, 36 possible words."""
+    """
+    Dataloader for board square embedding training, 36 possible words.
+    """
     def __init__(self):
         super(BoardEmbeddingDataset, self).__init__()
 
     def __getitem__(self, idx):
-        """From the index, outputs 2 vectors, a probability vector of pieces, and a probability vector of properties."""
+        """
+        From the index, outputs 2 vectors, a probability vector of pieces, and a probability vector of properties.
+        """
 
         # Piece probabilities
         target_prob_vector = torch.zeros(7)
@@ -88,7 +94,9 @@ class BoardEmbeddingDataset(Dataset):
 
 
 class MoveEmbeddingLoader(BaseDataLoader):
-    """Dataloader for move embedding training, 4864 possible words. """
+    """
+    Dataloader for move embedding training, 4864 possible words. 
+    """
     def __init__(self, batch_size, shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256):
 
         self.dataset = MoveEmbeddingDataset()
@@ -96,8 +104,10 @@ class MoveEmbeddingLoader(BaseDataLoader):
 
 
 class MoveEmbeddingDataset(Dataset):
-    """Dataset for moves, 4864 moves, you get word in and get out move coordinates and possible promotion
-    classification vector."""
+    """
+    Dataset for moves, 4864 moves, you get word in and get out move coordinates and possible promotion
+    classification vector.
+    """
     def __init__(self):
         super(MoveEmbeddingDataset, self).__init__()
 
@@ -286,7 +296,9 @@ class SelfPlayChessLoader(BaseDataLoader):
 
 
 class SelfPlayChessDataset(Dataset):
-    """Dataset for generated chess games. We have a branching out tree to have more moves towards the endgame."""
+    """
+    Dataset for generated chess games. We have a branching out tree to have more moves towards the endgame.
+    """
     
     def __init__(self, game_roller: GameRoller, query_word_len=256, num_of_branches=10, expansion_constant=0.008):
         super(SelfPlayChessDataset, self).__init__()
@@ -312,6 +324,7 @@ class SelfPlayChessDataset(Dataset):
         if self.follow_idx == 0:
             self.load_game()
             self.game_length = len(self.board_collection)
+            self.sample_move()
 
         sampled_board = copy.deepcopy(self.board_collection[self.follow_idx])
         sampled_quality_batch = self.move_quality_batch[self.follow_idx, :].clone()
@@ -339,7 +352,24 @@ class SelfPlayChessDataset(Dataset):
         self.game_roller.reset_buffers()
         
         self.alternate_flag = not self.alternate_flag
-
+        
+    def sample_move(self):
+        """
+        Sample a move for the main board; we don't want to roll everything from the beginning, 
+        else only the initial position will have informative training signals
+        """
+        legal_outs, quality_outs = self.good_engine.board_forward([self.init_board])
+        legal_move_list, quality_vec, _ = self.good_engine.post_process(legal_outs, quality_outs)
+        
+        # if we reached an ending position
+        if len(legal_move_list) == 0:
+            self.init_board = chess.Board()
+            return
+        
+        # Otherwise:
+        cat = torch.distributions.Categorical(quality_vec[0])
+        sample_idx = cat.sample()
+        self.init_board.push(legal_move_list[0][sample_idx])
     
     def __len__(self):
         return int(1e6)
@@ -347,7 +377,9 @@ class SelfPlayChessDataset(Dataset):
 
 
 def collate_fn(batch):
-    """Required collate function because the boards are a unique class"""
+    """
+    Required collate function because the boards are a unique class
+    """
     chess_boards = [batch[idx][0] for idx in range(len(batch))]
     quality_vectors = torch.zeros((len(batch), batch[0][1].size()[0]))
     for idx in range(len(batch)):

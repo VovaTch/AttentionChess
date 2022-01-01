@@ -39,7 +39,7 @@ def main(config):
 
     # setup data_loader instances
     game_roller = config.init_obj('game_roller', module_roller, 
-                                  model_good=copy.deepcopy(model), model_evil=copy.deepcopy(model), device=device)
+                                  model_good=model, model_evil=model, device=device)
     data_loader = config.init_obj('data_loader', module_data, collate_fn=collate_fn, game_roller=game_roller)
     valid_data_loader = data_loader.split_validation()
 
@@ -62,6 +62,8 @@ def main(config):
                       data_loader=data_loader,
                       valid_data_loader=valid_data_loader,
                       lr_scheduler=lr_scheduler)
+    
+    data_loader.set_engines(copy.deepcopy(model), copy.deepcopy(model))
 
     trainer.train()
 
