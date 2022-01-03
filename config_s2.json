@@ -18,7 +18,8 @@
         "type": "GameRoller",
         "args":{
             "move_limit": 300,
-            "argmax_start": 300
+            "argmax_start": 300,
+            "discard_draws": true
         }
     },
     "data_loader": {
@@ -29,13 +30,14 @@
             "validation_split": 0.01,
             "num_workers": 1,
             "num_of_branches": 10,
-            "expansion_constant": 0.010
+            "expansion_constant": 0.01,
+            "exploration_prob": 0.2
         }
     },
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-3,
+            "lr": 1e-1,
             "weight_decay": 1e-4,
             "amsgrad": true
         }

@@ -282,10 +282,11 @@ class SelfPlayChessLoader(BaseDataLoader):
     """
     def __init__(self, batch_size, game_roller, collate_fn,
                  shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256, 
-                 num_of_branches=10, expansion_constant=0.008):
+                 num_of_branches=10, expansion_constant=0.008, exploration_prob=1.0):
 
         self.dataset = SelfPlayChessDataset(query_word_len=query_word_len,  game_roller=game_roller,
-                                            num_of_branches=num_of_branches, expansion_constant=expansion_constant)
+                                            num_of_branches=num_of_branches, expansion_constant=expansion_constant,
+                                            exploration_prob=exploration_prob)
         super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
         
     def set_engines(self, good_engine: AttChess, evil_engine: AttChess):
@@ -300,7 +301,8 @@ class SelfPlayChessDataset(Dataset):
     Dataset for generated chess games. We have a branching out tree to have more moves towards the endgame.
     """
     
-    def __init__(self, game_roller: GameRoller, query_word_len=256, num_of_branches=10, expansion_constant=0.008):
+    def __init__(self, game_roller: GameRoller, query_word_len=256, num_of_branches=10, expansion_constant=0.008, 
+                 max_move_counter=100, exploration_prob=1.0):
         super(SelfPlayChessDataset, self).__init__()
 
         
@@ -309,10 +311,13 @@ class SelfPlayChessDataset(Dataset):
         self.game_length = 0
         self.board_collection = None
         self.move_quality_batch = None
+        self.max_move_counter = max_move_counter
+        self.sample_move_counter = 0
 
         self.alternate_flag = True
         self.num_of_branches = num_of_branches
         self.expansion_constant = expansion_constant
+        self.exploration_prob = exploration_prob
         
         self.init_board = chess.Board()
         self.game_roller = game_roller
@@ -325,6 +330,7 @@ class SelfPlayChessDataset(Dataset):
             self.load_game()
             self.game_length = len(self.board_collection)
             self.sample_move()
+            self.sample_move_counter += 1
 
         sampled_board = copy.deepcopy(self.board_collection[self.follow_idx])
         sampled_quality_batch = self.move_quality_batch[self.follow_idx, :].clone()
@@ -346,11 +352,13 @@ class SelfPlayChessDataset(Dataset):
             self.game_roller.model_evil = self.good_engine
             
         self.game_roller.roll_game(self.init_board, num_of_branches=self.num_of_branches, 
-                                   expansion_constant=self.expansion_constant)
+                                   expansion_constant=self.expansion_constant, exploration_prob=self.exploration_prob)
         self.board_collection = self.game_roller.board_buffer
         self.move_quality_batch = self.game_roller.reward_vec_buffer
         self.game_roller.reset_buffers()
         
+        player_name = 'white' if self.alternate_flag else 'black'
+        print(f'The protagonist is {player_name}.')
         self.alternate_flag = not self.alternate_flag
         
     def sample_move(self):
@@ -361,15 +369,21 @@ class SelfPlayChessDataset(Dataset):
         legal_outs, quality_outs = self.good_engine.board_forward([self.init_board])
         legal_move_list, quality_vec, _ = self.good_engine.post_process(legal_outs, quality_outs)
         
-        # if we reached an ending position
-        if len(legal_move_list) == 0:
-            self.init_board = chess.Board()
-            return
+        print(f'Move counter: {self.sample_move_counter}')
+        print(f'Num of legal moves: {len(legal_move_list[0])}')
         
         # Otherwise:
         cat = torch.distributions.Categorical(quality_vec[0])
         sample_idx = cat.sample()
         self.init_board.push(legal_move_list[0][sample_idx])
+        
+        # if we reached an ending position
+        after_legal_move_list = [move for move in self.init_board.legal_moves]
+        if len(after_legal_move_list) == 0: # or self.sample_move_counter == self.max_move_counter:
+
+            self.init_board = chess.Board()
+            self.sample_move_counter = 0
+            return
     
     def __len__(self):
         return int(1e6)

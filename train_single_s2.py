@@ -53,8 +53,6 @@ def main(config):
     lr_scheduler = config.init_obj('lr_scheduler', torch.optim.lr_scheduler, optimizer)
 
     torch.autograd.set_detect_anomaly(True)
-    # data_loader.dataset.good_engine = game_roller.model_good
-    # data_loader.dataset.evil_engine = game_roller.model_evil
 
     trainer = Trainer(model, criterion, metrics, optimizer,
                       config=config,

@@ -12,13 +12,15 @@ class GameRoller:
     """A class for the model to play against itself. It plays a game and outputs the moves + result"""
 
     @torch.no_grad()
-    def __init__(self, model_good: AttChess, model_evil: AttChess, device='cuda', move_limit=300, argmax_start=300):
+    def __init__(self, model_good: AttChess, model_evil: AttChess, device='cuda', move_limit=300, argmax_start=300, 
+                 discard_draws=False):
         """Loads the model"""
         self.model_good = copy.deepcopy(model_good)
         self.model_evil = copy.deepcopy(model_evil)
         self.device = device
         self.move_limit = move_limit
         self.argmax_start = argmax_start
+        self.discard_draws = discard_draws
 
         self.board_buffer = []
         self.move_buffer = []
@@ -27,7 +29,7 @@ class GameRoller:
         self.result = {}  # a dict that describes what happened and with how many moves
 
     @torch.no_grad()
-    def roll_game(self, init_board: chess.Board, num_of_branches=1, expansion_constant=0.0):
+    def roll_game(self, init_board: chess.Board, num_of_branches=1, expansion_constant=0.0, exploration_prob=1.0):
         """Plays the entire game"""
 
         # Keep track of branches, wins, draws, and losses
@@ -57,14 +59,14 @@ class GameRoller:
                 # Check if we reached the endgame
                 move_num = current_node.moves_performed
                 if move_num + 1 >= self.argmax_start:
-                    sample_move = False
+                    exp_prob = 0.0
                 else:
-                    sample_move = True
+                    exp_prob = exploration_prob
                     
                 # Create node; append to new list only if the endgame wasn't reached
                 if init_flag:
                     
-                    new_node = init_node.sample_move(legal_move, quality_vec, sample_move=sample_move)
+                    new_node = init_node.sample_move(legal_move, quality_vec, exploration_prob=exp_prob)
                     if not new_node.endgame_flag:
                         new_nodes.append(new_node)
                         board_list_new.append(new_node.board)
@@ -73,10 +75,10 @@ class GameRoller:
                         
                 else: 
                     while True:
-                        new_node = current_node.sample_move(legal_move, quality_vec, sample_move=sample_move)
+                        new_node = current_node.sample_move(legal_move, quality_vec, exploration_prob=exp_prob)
                         new_node.score_function.last_move_idx = move_num + 2  # The +2 hack is to prevent division by zero
                         
-                        if not new_node.endgame_flag and move_num <= self.move_limit:  # TODO: once debugged get rid of the end condition
+                        if not new_node.endgame_flag and move_num <= self.move_limit: 
                             new_nodes.append(new_node)
                             board_list_new.append(new_node.board)
                         else:
@@ -109,8 +111,7 @@ class GameRoller:
                 break
             
         print(f'Results of all the branches: {results_dict}')
-        self.board_buffer, self.reward_vec_buffer = init_node.flatten_tree()  # TODO: perform additive operation
-        print(2222)
+        self.board_buffer, self.reward_vec_buffer = init_node.flatten_tree(discard_draws=self.discard_draws)  # TODO: perform additive operation
 
     @torch.no_grad()
     def reset_buffers(self):
@@ -145,6 +146,7 @@ class BoardNode:
 
         self.quality_vector_logit = torch.zeros(
             self.num_legal_moves).to(device)
+        self.value_score = 0
 
         self.parent = parent  # Board node if not first move, None if it is
         self.board = board
@@ -161,14 +163,17 @@ class BoardNode:
         self.children.append(new_child)
         return new_child
 
-    def sample_move(self, legal_move_list, quality_vector, sample_move=True):
+    def sample_move(self, legal_move_list, quality_vector, exploration_prob=1.0):
         """Sample a move given outputs from an engine and create a child node"""
         
-        if sample_move:
+        rand_num = random.uniform(0, 1)
+        
+        if rand_num <= exploration_prob:
             cat = torch.distributions.Categorical(quality_vector)
             sample_idx = cat.sample()
         else:
             sample_idx = torch.argmax(quality_vector)
+        
         sample = legal_move_list[sample_idx]
         new_child = self.perform_move(sample)
 
@@ -179,6 +184,10 @@ class BoardNode:
 
         # If there is no parent, we reached the bottom of the barrel
         if self.parent is None:
+            if self.result != 0:
+                self.value_score = -100
+            else:
+                self.value_score = 0
             return
 
         turn_variable = 1 if self.board.turn is False else -1
@@ -186,12 +195,16 @@ class BoardNode:
         current_score = self.score_function(self.moves_performed, self.board)
         last_move = self.board.peek()
         self.parent.result = self.result
-        result_marker = self.result if self.result != 0 else -turn_variable
+        result_marker = self.result if self.result != 0 else 0 # was -turn_variable
         quality_idx = [idx for idx, move in enumerate(self.parent.legal_move_list) if move == last_move]
-        self.parent.quality_vector_logit[quality_idx[0]] += current_score * result_marker * turn_variable  # TODO: Check if works. The 1 replaced the result
+        self.parent.quality_vector_logit[quality_idx[0]] += current_score * result_marker * turn_variable 
+        
+        # Position value score; take the value and divide by the number of children.
+        self.parent.value_score += current_score * result_marker * turn_variable / len(self.parent.children)
+        
         self.parent.propagate_score()  # Recursively apply the score propogation
 
-    def flatten_tree(self):
+    def flatten_tree(self, discard_draws=False):
         """Call on tree root to collapse all boards into a single vector, with the corresponding quality vectors. 
         This is the most essential method, it prepares the data for learning."""
 
@@ -207,10 +220,14 @@ class BoardNode:
 
         turn_variable = 1 if self.board.turn is False else -1
         
-        quality_vector_append = torch.zeros((1, 256)).to(self.device) - torch.inf
-        quality_vector_append[0, :self.quality_vector_logit.size()[0]] = self.quality_vector_logit
-        quality_vector_append[0, -1] = turn_variable * self.result
-        move_tensor = torch.cat((move_tensor, quality_vector_append))
+        if discard_draws or self.result != 0:
+            quality_vector_append = torch.zeros((1, 256)).to(self.device) - torch.inf
+            quality_vector_append[0, :self.quality_vector_logit.size()[0]] = self.quality_vector_logit
+            quality_vector_append[0, -1] = self.value_score
+            move_tensor = torch.cat((move_tensor, quality_vector_append))
+        else:
+            board_list.pop()
+            
 
         # Extract everything from the children nodes recursively
         for child in self.children:

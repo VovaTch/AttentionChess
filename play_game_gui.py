@@ -317,6 +317,14 @@ def main(args, config):
                         if sample in gs.board.legal_moves:
                             gs.board.push(sample)
                             break
+                        
+                elif keys[p.K_r] and keys[p.K_LCTRL]:
+                    gs.reset()
+                    sq_selected = ()
+                    player_clicks = []
+                    promotion_flag = False
+                    selected_piece = None  # Selected piece for promotion
+                    undo_flag = False
 
             # ----------------------- MOUSE HANDLERS ----------------------------
             elif e.type == p.MOUSEBUTTONDOWN:

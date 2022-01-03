@@ -17,6 +17,15 @@ class GameState:
         self.is_white_checkmate = False
         self.is_black_checkmate = False
         self.is_draw = False
+        
+    def reset(self):
+        self.board = chess.Board()
+        self.move_log = []
+        self.cap_black = []
+        self.cap_black = []
+        self.is_white_checkmate = False
+        self.is_black_checkmate = False
+        self.is_draw = False
 
     def get_embedding_board(self):
         """Gets the embedding of the base board"""
