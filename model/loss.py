@@ -13,39 +13,52 @@ def test_loss(pred_moves: torch.Tensor, target_moves: torch.Tensor):
 # TODO: a more ordered criteria that encompasses everything. Fix moves tensor back to 6
 class Criterion(torch.nn.Module):
 
-    def __init__(self, losses, eos_coef=0.25, f_loss_gamma=2):
+    def __init__(self, losses, eos_coef=0.25, f_loss_gamma=2, mse_weight=0.01):
         super().__init__()
         self.eos_coef = eos_coef
         self.f_loss_gamma = f_loss_gamma
         self.losses = losses
         self.batch_size = 0
         self.query_size = 0
+        self.mse_weight = mse_weight
 
-    def mse_score_loss(self, pred_quality_vec: torch.Tensor, target_quality_vec: torch.Tensor):
-        """Score for the move strength. The move strength should be drawn from outside, or another class"""
-
-        mse_loss = torch.nn.MSELoss()
-        loss_ce_gen = cross_entropy_gen(pred_quality_vec[:, :-1], target_quality_vec[:, :-1])
-        loss_mse_gen = mse_loss(pred_quality_vec[:, -1], target_quality_vec[:, -1])
-
-        loss = {'loss_score': loss_ce_gen + loss_mse_gen}
+    def board_value_loss(self, pred_quality_vec: torch.Tensor, pred_value: torch.Tensor, 
+                         target_quality_vec: torch.Tensor, target_value: torch.Tensor):
+        """Score for the board value; doing this MSE style"""
+        
+        mse_loss_handle = torch.nn.MSELoss()
+        
+        loss_mse = mse_loss_handle(pred_value, target_value * 0.01)
+        
+        loss = {'loss_board_value': loss_mse}
         return loss
 
-    def get_loss(self, loss, pred_quality_vec, target_quality_vec):
+    def quality_loss(self, pred_quality_vec: torch.Tensor, pred_value: torch.Tensor, 
+                     target_quality_vec: torch.Tensor, target_value: torch.Tensor):
+        """Score for the move strength. The move strength should be drawn from outside, or another class"""
+
+        loss_ce_gen = cross_entropy_gen(pred_quality_vec, target_quality_vec)
+
+        loss = {'loss_quality': loss_ce_gen}
+        return loss
+
+    def get_loss(self, loss, pred_quality_vec, pred_value, target_quality_vec, target_value):
         loss_map = {
-            'mse_score': self.mse_score_loss
+            'quality_loss': self.quality_loss,
+            'board_value_loss': self.board_value_loss
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
-        return loss_map[loss](pred_quality_vec, target_quality_vec)
+        return loss_map[loss](pred_quality_vec, pred_value, target_quality_vec, target_value)
 
-    def forward(self, pred_quality_vec: torch.Tensor, target_quality_vec: torch.Tensor):
+    def forward(self, pred_quality_vec: torch.Tensor, pred_value: torch.Tensor, 
+                target_quality_vec: torch.Tensor, target_value: torch.Tensor):
 
         self.batch_size = target_quality_vec.size()[0]
         self.query_size = target_quality_vec.size()[1]
 
         losses = {}
         for loss in self.losses:
-            losses.update(self.get_loss(loss, pred_quality_vec, target_quality_vec))
+            losses.update(self.get_loss(loss, pred_quality_vec, pred_value, target_quality_vec, target_value))
 
         return losses
 

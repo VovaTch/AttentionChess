@@ -9,7 +9,7 @@
             "num_heads": 8,
             "num_encoder": 6,
             "num_decoder": 6,
-            "num_chess_conv_layers": 0,
+            "num_chess_conv_layers": 3,
             "p_embedding": false,
             "dropout": 0.0
         }
@@ -30,8 +30,9 @@
             "validation_split": 0.01,
             "num_workers": 1,
             "num_of_branches": 10,
-            "expansion_constant": 0.01,
-            "exploration_prob": 0.2
+            "expansion_constant": 0.009,
+            "exploration_prob": 1.0,
+            "max_move_counter": 300
         }
     },
     "optimizer": {
@@ -47,7 +48,8 @@
         "type": "Criterion",
         "args": {
             "eos_coef": 0.25,
-            "losses": ["mse_score"]
+            "losses": ["mse_score"],
+            "mse_weight": 0.0
         }
     },
     "loss_weights":

@@ -9,12 +9,14 @@ from positional_encodings import PositionalEncoding2D
 
 from base.base_model import BaseModel
 from utils.util import word_to_move, board_to_embedding_coord, move_to_coordinate
-from model.chess_conv_attention import create_chess_kernel
+from model.chess_conv_attention import hollow_chess_kernel
 from .chess_conv_attention import ChessEncoderLayer
 
 
 class MLP(nn.Module):
-    """ Very simple multi-layer perceptron (also called FFN)"""
+    """
+    Very simple multi-layer perceptron (also called FFN)
+    """
 
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout=0.1):
         super().__init__()
@@ -31,7 +33,9 @@ class MLP(nn.Module):
 
 
 class AttChess(BaseModel):
-    """Main model, new"""
+    """
+    Main model, new again, now with a separate value score
+    """
 
     def __init__(self, hidden_dim=8, num_heads=8, num_encoder=10, num_decoder=5, dropout=0.1, query_word_len=256,
                  num_chess_conv_layers=2, p_embedding=True):
@@ -67,14 +71,23 @@ class AttChess(BaseModel):
         # m_emb_weights = torch.load('model/move_embedding.pth', map_location=torch.device('cpu') )
         # self.query_embedding.load_state_dict(m_emb_weights)
 
-        self.conv_weights = []
         self.num_conv = num_chess_conv_layers
+        self.end_conv = list()
         # Creates a convolution layer
         for idx in range(num_chess_conv_layers):
-            self.conv_weights.append(create_chess_kernel(out_channels=8, in_channels=8))
+            self.end_conv.append(nn.Conv2d(self.hidden_dim, self.hidden_dim, (15, 15), padding=7))
+            hollow_chess_kernel(self.end_conv[-1].weight)
+            
+        self.conv_end_stack = nn.ModuleList(self.end_conv)
+            
+        self.end_head_conv = nn.Conv2d(self.hidden_dim, 1, (15, 15), padding=7)
+        self.end_head_linear = nn.Linear(64, 1)
+        self.batch_norm = nn.BatchNorm2d(self.hidden_dim)
 
     def board_forward(self, boards: list[chess.Board]):
-        """Takes a list of boards and converts them to tensors, gets a list of python-chess boards."""
+        """
+        Takes a list of boards and converts them to tensors, gets a list of python-chess boards.
+        """
 
         if next(self.parameters()).is_cuda:
             device = 'cuda'
@@ -94,7 +107,9 @@ class AttChess(BaseModel):
         return self.forward(boards_torch.int(), legal_move_torch)
 
     def forward(self, boards: torch.Tensor, legal_move_tensor=None):
-        """Input: chessboard embedding index input"""
+        """
+        Input: chessboard embedding index input
+        """
 
         batch_size = boards.size()[0]
 
@@ -105,9 +120,6 @@ class AttChess(BaseModel):
 
         # Embedding + pos embedding
         hidden_embedding = self.backbone_embedding(boards)
-        for idx in range(self.num_conv):
-            hidden_embedding = F.conv2d(hidden_embedding, weight=self.conv_weights[idx].to(device), padding=7)
-            hidden_embedding = hidden_embedding if idx + 1 == self.num_conv else self.relu(hidden_embedding)
 
         pose_embedding = self.positional_embedding(hidden_embedding) * self.p_emb_flag
         transformer_input = hidden_embedding + pose_embedding
@@ -116,6 +128,23 @@ class AttChess(BaseModel):
         boards_flattened = boards.flatten(1, 2)
         encoder_output_board = self.chess_encoder(transformer_input)
         encoder_output = encoder_output_board.flatten(1, 2)
+        
+        head_eo = encoder_output_board.clone()
+        head_eo = head_eo.permute(0, 3, 1, 2)
+        
+        # Board value head
+        for idx in range(self.num_conv):
+            head_eo_2 = head_eo.clone()
+            # self.end_conv[idx] = self.end_conv[idx].to(device)
+            head_eo = self.conv_end_stack[idx](head_eo)
+            head_eo = self.relu(head_eo) 
+            head_eo = self.batch_norm(head_eo)
+            head_eo += head_eo_2
+            
+        head_eo = self.end_head_conv(head_eo)
+        head_eo = self.relu(head_eo)
+        head_eo = head_eo.permute(0, 2, 3, 1).flatten(1, 2).squeeze(-1)
+        board_value = self.end_head_linear(head_eo)
 
         # If the moves are need to be learned
         if legal_move_tensor is None:
@@ -133,22 +162,21 @@ class AttChess(BaseModel):
         query_words = torch.zeros((boards.size()[0], self.query_word_len)).to(boards.device) + 4864
         for batch_idx in range(boards.size()[0]):
             batch_legal_moves = legal_move_word[legal_move_word[:, 0] == batch_idx, 1]
-            if batch_legal_moves.size()[0] < self.query_word_len - 1:
+            if batch_legal_moves.size()[0] < self.query_word_len:
                 query_words[batch_idx, 0: batch_legal_moves.size()[0]] = batch_legal_moves
             else:
-                query_words[batch_idx, :-1] = batch_legal_moves[:self.query_word_len - 1]  # Cut off at 256. The max number of chess moves is 218.
+                query_words[batch_idx, :] = batch_legal_moves[:self.query_word_len]  # Cut off at 256. The max number of chess moves is 218.
 
         # Pass through decoder and classify
         queried_moves = self.query_embedding(query_words.long())
         decoder_output = self.chess_decoder(queried_moves, encoder_output)
         classification_scores = self.move_quality_cls_head(decoder_output)  # idx 255 is saved for resigning or draw
 
-        return legal_move_out, classification_scores.squeeze(2)
+        return legal_move_out, classification_scores.squeeze(2), board_value.squeeze(-1)
 
-    def post_process(self, legal_move_out, classification_scores):
+    def post_process(self, legal_move_out, classification_scores, board_value):
 
         cls_score_batch = []
-        end_game_flag = []
         legal_move_list = []
 
         legal_move_bool = legal_move_out > 0
@@ -166,17 +194,15 @@ class AttChess(BaseModel):
             for word_idx, word in enumerate(legal_move_word):
                 move = word_to_move(word)
                 legal_move_list[-1].append(move)
-                if word_idx >= self.query_word_len - 1:
+                if word_idx >= self.query_word_len:
                     break
-
-            end_game_flag.append(cls_end_score_ind[-1])
 
             # Handling classification scores. Has to be stored in a list because every one of them has a different size
             part_cls_score = cls_end_score_ind[:word_idx + 1].clone()
             part_cls_score = torch.softmax(part_cls_score, 0)
             cls_score_batch.append(part_cls_score)
 
-        return legal_move_list, cls_score_batch, end_game_flag
+        return legal_move_list, cls_score_batch, board_value * 100
 
 
 class BoardEmbTrainNet(nn.Module):

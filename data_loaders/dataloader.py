@@ -8,6 +8,7 @@ import numpy as np
 from model.attchess import AttChess
 
 from utils.util import move_to_tensor, move_to_coordinate, board_to_embedding_coord
+from model.score_functions import ScoreWinFast
 from .game_roll import GameRoller
 
 
@@ -178,6 +179,7 @@ class RuleChessDataset(Dataset):
         self.game_length = 0
         self.board_collection = None
         self.move_quality_batch = None
+        self.board_value_batch = None
 
     def __getitem__(self, _):
 
@@ -187,18 +189,24 @@ class RuleChessDataset(Dataset):
 
         sampled_board = copy.deepcopy(self.board_collection[self.follow_idx])
         sampled_quality_batch = self.move_quality_batch[self.follow_idx, :].clone()
+        sampled_board_value_batch = self.board_value_batch[self.follow_idx].clone()
 
         self.follow_idx += 1
         if self.follow_idx == self.game_length:
             self.follow_idx = 0
 
-        return sampled_board, sampled_quality_batch
+        return sampled_board, sampled_quality_batch, sampled_board_value_batch
 
     def load_game(self):
 
         while True:
             game = chess.pgn.read_game(self.pgn)
-            if 'Termination' in game.headers and game.headers['Termination'] == 'Normal':
+            move_counter = 0
+            for move in enumerate(game.mainline_moves()):
+                move_counter += 1
+            last_move = 1 if move_counter % 2 == 1 else -1
+            
+            if 'Termination' in game.headers and game.headers['Termination'] == 'Normal' and move_counter > 0:
                 break
 
         board = game.board()
@@ -212,20 +220,25 @@ class RuleChessDataset(Dataset):
 
         self.board_collection = [board]
         self.move_quality_batch = torch.zeros((0, self.query_word_len))
+        self.board_value_batch = torch.zeros(0)
+        board_value_list = []
 
         score_factor = base_eval
+        
+        # Create the score function
+        score_function = ScoreWinFast(moves_to_end=move_counter)
+            
 
         for idx, move in enumerate(game.mainline_moves()):
 
             # Fill the legal move matrix
             legal_move_mat = torch.zeros((1, 64, 76))
-            quality_vector = torch.zeros((1, self.query_word_len))
-            quality_vector[0, -1] = 0
+            quality_vector_logit = torch.zeros((1, self.query_word_len)) - torch.inf
             for idx_move, legal_move in enumerate(board.legal_moves):
 
                 move_legal_coor = move_to_coordinate(legal_move)
                 legal_move_mat[0, move_legal_coor[0], move_legal_coor[1]] = 1
-                quality_vector[0, idx_move] = 1e-10
+                quality_vector_logit[0, idx_move] = 0
 
             legal_move_mat = legal_move_mat == 1
             legal_move_idx = torch.nonzero(legal_move_mat)
@@ -236,13 +249,17 @@ class RuleChessDataset(Dataset):
             move_per_word = move_per_coor[0] + 64 * move_per_coor[1]
 
             # Find the correct move
+            opposite_win_add = 1 if base_eval != last_move else 0 # A fix for when the the player resigns right after doing his move
+            board_value = 0
             matching_idx = torch.nonzero(legal_move_word[:, 1] == move_per_word)
             if score_factor == 1:
-                quality_vector[0, matching_idx] = 1
+                quality_vector_logit[0, matching_idx] = score_function(idx - opposite_win_add)
             elif score_factor == -1:
-                quality_vector[0, matching_idx] = -1
+                quality_vector_logit[0, matching_idx] = -score_function(idx - opposite_win_add)
+                
+            board_value = score_function(idx - opposite_win_add) * base_eval
 
-            quality_vector[0, :-1] = quality_vector[0, :-1] / (torch.sum(quality_vector[0, :-1]) + 1e-6)
+            quality_vector = quality_vector_logit.softmax(dim=1)
 
             # self.move_collection = torch.cat((self.move_collection, move_tensor.unsqueeze(0)), 0)
             board_new = copy.deepcopy(board)
@@ -252,22 +269,12 @@ class RuleChessDataset(Dataset):
 
             # concat also legals + quality
             self.move_quality_batch = torch.cat((self.move_quality_batch, quality_vector), 0)
+            board_value_list.append(board_value)
+            
+            score_factor *= -1
 
-        # Fill the legal move matrix
-        quality_vector = torch.zeros((1, self.query_word_len))
-        for idx_move, legal_move in enumerate(board.legal_moves):
-
-            quality_vector[0, idx_move] = 1e-10
-
-        if result == '1-0' or result == '0-1':
-            quality_vector[0, self.query_word_len - 1] = 1
-        else:
-            quality_vector[0, self.query_word_len - 1] = 0
-
-        quality_vector[0, :-1] = quality_vector[0, :-1] / (torch.sum(quality_vector[0, :-1]) + 1e-6)
-
-        # concat also legals + quality
-        self.move_quality_batch = torch.cat((self.move_quality_batch, quality_vector), 0)
+        self.board_value_batch = torch.tensor(board_value_list)
+        self.board_collection.pop()
 
     def get_item_new(self, _):
         pass
@@ -282,11 +289,11 @@ class SelfPlayChessLoader(BaseDataLoader):
     """
     def __init__(self, batch_size, game_roller, collate_fn,
                  shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256, 
-                 num_of_branches=10, expansion_constant=0.008, exploration_prob=1.0):
+                 num_of_branches=10, expansion_constant=0.008, exploration_prob=1.0, max_move_counter=100):
 
         self.dataset = SelfPlayChessDataset(query_word_len=query_word_len,  game_roller=game_roller,
                                             num_of_branches=num_of_branches, expansion_constant=expansion_constant,
-                                            exploration_prob=exploration_prob)
+                                            exploration_prob=exploration_prob, max_move_counter=max_move_counter)
         super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
         
     def set_engines(self, good_engine: AttChess, evil_engine: AttChess):
@@ -369,9 +376,6 @@ class SelfPlayChessDataset(Dataset):
         legal_outs, quality_outs = self.good_engine.board_forward([self.init_board])
         legal_move_list, quality_vec, _ = self.good_engine.post_process(legal_outs, quality_outs)
         
-        print(f'Move counter: {self.sample_move_counter}')
-        print(f'Num of legal moves: {len(legal_move_list[0])}')
-        
         # Otherwise:
         cat = torch.distributions.Categorical(quality_vec[0])
         sample_idx = cat.sample()
@@ -379,8 +383,8 @@ class SelfPlayChessDataset(Dataset):
         
         # if we reached an ending position
         after_legal_move_list = [move for move in self.init_board.legal_moves]
-        if len(after_legal_move_list) == 0: # or self.sample_move_counter == self.max_move_counter:
-
+        if len(after_legal_move_list) == 0 or self.sample_move_counter > self.max_move_counter: 
+            
             self.init_board = chess.Board()
             self.sample_move_counter = 0
             return
@@ -396,8 +400,10 @@ def collate_fn(batch):
     """
     chess_boards = [batch[idx][0] for idx in range(len(batch))]
     quality_vectors = torch.zeros((len(batch), batch[0][1].size()[0]))
+    board_values = torch.zeros(len(batch))
     for idx in range(len(batch)):
         quality_vectors[idx, :] = batch[idx][1]
-    return chess_boards, quality_vectors
+        board_values[idx] = batch[idx][2]
+    return chess_boards, quality_vectors, board_values
 
 

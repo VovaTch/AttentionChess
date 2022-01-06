@@ -5,6 +5,7 @@ import copy
 import random
 
 from model.attchess import AttChess
+from model.score_functions import ScoreWinFast
 from utils.util import board_to_tensor, legal_move_mask
 
 
@@ -76,7 +77,7 @@ class GameRoller:
                 else: 
                     while True:
                         new_node = current_node.sample_move(legal_move, quality_vec, exploration_prob=exp_prob)
-                        new_node.score_function.last_move_idx = move_num + 2  # The +2 hack is to prevent division by zero
+                        new_node.score_function.last_move_idx = (move_num + 2) // 2  # The +2 hack is to prevent division by zero
                         
                         if not new_node.endgame_flag and move_num <= self.move_limit: 
                             new_nodes.append(new_node)
@@ -249,13 +250,96 @@ class BoardNode:
             return True, 0
         return False, 0
 
+class InferenceBoardNode(BoardNode):
+    """
+    A sister class for inference; perform MCTS when the score is pre-determined
+    """
+    
+    def __init__(self, board: chess.Board, parent, score_function, quality_prob_vec, value_score, 
+                 device='cuda', moves_performed=0):
+        super().__init__(board, parent, score_function, device=device, moves_performed=moves_performed)
+        self.quality_vector = quality_prob_vec
+        self.value_score = value_score
+        self.num_of_visits = 0
+        self.back_moves = 1
+        
+        # Need to do this hack because can't check directly if the board is an initial position or not.
+        try:
+            self.last_move = board.peek()
+        except:
+            self.last_move = None
+        
+    def propagate_score(self):
+        """
+        Propagate score for inference; instead of going for the mid, always select min-max TODO: Do the min-max
+        """
 
-class ScoreWinFast:
+        # If there is no parent, we reached the bottom of the barrel
+        if self.parent is None:
+            return
 
-    def __init__(self, moves_to_end, score_max=100):
-        self.last_move_idx = moves_to_end
-        self.score_max = score_max
+        self.parent.score_function = self.score_function
 
-    def __call__(self, move_idx, board: chess.Board):
-        score = self.score_max / (self.last_move_idx - move_idx)
-        return score
+        # Position value score; take the value and divide by the number of children.
+        self.parent.value_score += (self.score * self.back_moves / (self.back_moves + 1)  - self.parent.value_score) \
+            / len(self.parent.children)
+        
+        self.parent.propagate_score()  # Recursively apply the score propogation
+        
+        
+class InferenceMoveSearcher:
+    """
+    MCTS move searcher; expand tree according to policy, find the best move according to value.
+    """
+    def __init__(self, engine: AttChess):
+        self.leaf_nodes = []
+        self.engine = copy.deepcopy(engine)
+    
+    def return_sampled_node(self, node_query: InferenceBoardNode):
+        
+        new_node = node_query.sample_move(legal_move_list=node_query.board.legal_moves, 
+                                    quality_vector=node_query.quality_vector)
+        
+        node_check = [node for node in node_query.children if node.last_move is new_node.last_move]
+        
+        # Check if the newly created node exists in the children list already. If not, create a new child node
+        if len(node_check) == 1:
+            current_node = new_node
+            new_flag = True
+        else:
+            current_node = node_check[0]
+            node_query.children.pop()
+            new_flag = False
+        current_node.num_of_visits += 1
+        
+        return current_node, new_flag
+    
+    @torch.no_grad()
+    def run_engine(self, current_node):
+
+        legal_move_out, quality_out, value_out = self.engine.board_forward([current_node.board])
+        legal_move_list, quality_vec, value_pred = self.engine.post_process(legal_move_out, quality_out, value_out)
+        current_node.legal_move_list = legal_move_list[0]
+        current_node.quality_vector = quality_vec[0]
+        current_node.value_score = value_pred[0]
+    
+    def __call__(self, init_node: InferenceBoardNode, number_of_moves):
+        
+        for idx in range(number_of_moves):
+            
+            current_node, new_flag = self.return_sampled_node(init_node)
+            
+            # Activate the net
+            self.run_engine(current_node)
+
+            # Search further down
+            while not new_flag:
+                current_node, new_flag = self.return_sampled_node(current_node)
+                self.run_engine(current_node)
+            
+            self.leaf_nodes.append(current_node)
+            
+        for leaf_node in self.leaf_nodes:
+            leaf_node.propagate_score()
+            
+            # TODO: Continue the selection algorithm
