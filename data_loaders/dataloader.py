@@ -180,6 +180,7 @@ class RuleChessDataset(Dataset):
         self.board_collection = None
         self.move_quality_batch = None
         self.board_value_batch = None
+        self.selected_move_idx = None
 
     def __getitem__(self, _):
 
@@ -190,12 +191,13 @@ class RuleChessDataset(Dataset):
         sampled_board = copy.deepcopy(self.board_collection[self.follow_idx])
         sampled_quality_batch = self.move_quality_batch[self.follow_idx, :].clone()
         sampled_board_value_batch = self.board_value_batch[self.follow_idx].clone()
+        sampled_move_idx = self.selected_move_idx[self.follow_idx].clone()
 
         self.follow_idx += 1
         if self.follow_idx == self.game_length:
             self.follow_idx = 0
 
-        return sampled_board, sampled_quality_batch, sampled_board_value_batch
+        return sampled_board, sampled_quality_batch, sampled_board_value_batch, sampled_move_idx
 
     def load_game(self):
 
@@ -222,6 +224,7 @@ class RuleChessDataset(Dataset):
         self.move_quality_batch = torch.zeros((0, self.query_word_len))
         self.board_value_batch = torch.zeros(0)
         board_value_list = []
+        move_idx_list = []
 
         score_factor = base_eval
         
@@ -256,6 +259,7 @@ class RuleChessDataset(Dataset):
                 quality_vector_logit[0, matching_idx] = score_function(idx - opposite_win_add)
             elif score_factor == -1:
                 quality_vector_logit[0, matching_idx] = -score_function(idx - opposite_win_add)
+            move_idx_list.append(matching_idx)
                 
             board_value = score_function(idx - opposite_win_add) * base_eval
 
@@ -274,13 +278,14 @@ class RuleChessDataset(Dataset):
             score_factor *= -1
 
         self.board_value_batch = torch.tensor(board_value_list)
+        self.selected_move_idx = torch.tensor(move_idx_list)
         self.board_collection.pop()
 
     def get_item_new(self, _):
         pass
 
     def __len__(self):
-        return int(1e6)
+        return int(1e5)
 
 
 class SelfPlayChessLoader(BaseDataLoader):
@@ -390,7 +395,7 @@ class SelfPlayChessDataset(Dataset):
             return
     
     def __len__(self):
-        return int(1e6)
+        return int(1e5)
 
 
 
@@ -401,9 +406,11 @@ def collate_fn(batch):
     chess_boards = [batch[idx][0] for idx in range(len(batch))]
     quality_vectors = torch.zeros((len(batch), batch[0][1].size()[0]))
     board_values = torch.zeros(len(batch))
+    move_idx = torch.zeros(len(batch))
     for idx in range(len(batch)):
         quality_vectors[idx, :] = batch[idx][1]
         board_values[idx] = batch[idx][2]
-    return chess_boards, quality_vectors, board_values
+        move_idx[idx] = batch[idx][3]
+    return chess_boards, quality_vectors, board_values, move_idx
 
 

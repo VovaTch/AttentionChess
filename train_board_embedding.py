@@ -9,7 +9,7 @@ from data_loaders.dataloader import BoardEmbeddingLoader
 def main(args):
 
     # Model
-    model = BoardEmbTrainNet()
+    model = BoardEmbTrainNet(emb_size=args.em_size)
     model = model.train().to(args.device)
 
     # Data loader
@@ -47,5 +47,6 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--epochs', type=int, default=50, help='Number of training epochs.')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate.')
     parser.add_argument('--wd', type=float, default=1e-4, help='Weight decay.')
+    parser.add_argument('--em_size', type=int, default=32, help='Size of the embedding layer')
     arg = parser.parse_args()
     main(arg)

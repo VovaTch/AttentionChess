@@ -281,8 +281,11 @@ class InferenceBoardNode(BoardNode):
         self.parent.score_function = self.score_function
 
         # Position value score; take the value and divide by the number of children.
-        self.parent.value_score += (self.score * self.back_moves / (self.back_moves + 1)  - self.parent.value_score) \
-            / len(self.parent.children)
+        if self.board.turn and self.value_score * self.back_moves / (self.back_moves + 1) > self.parent.value_score:
+            self.parent.value_score = self.value_score * self.back_moves / (self.back_moves + 1)
+            
+        elif not self.board.turn and self.value_score * self.back_moves / (self.back_moves + 1) < self.parent.value_score:
+            self.parent.value_score = self.value_score * self.back_moves / (self.back_moves + 1)
         
         self.parent.propagate_score()  # Recursively apply the score propogation
         
@@ -342,4 +345,13 @@ class InferenceMoveSearcher:
         for leaf_node in self.leaf_nodes:
             leaf_node.propagate_score()
             
-            # TODO: Continue the selection algorithm
+        # Find maximum value move
+        if init_node.board.turn:
+            value_list = np.array([node.value for node in init_node.children])
+            max_value_idx = np.argmax(value_list)
+            return init_node.children[max_value_idx].last_move
+        else:
+            value_list = np.array([node.value for node in init_node.children])
+            min_value_idx = np.argmin(value_list)
+            return init_node.children[min_value_idx].last_move
+        

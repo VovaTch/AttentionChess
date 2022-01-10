@@ -298,19 +298,21 @@ def main(args, config):
                     print('[INFO] Bot move')
 
                     # Run the network and get a move sample
-                    outputs_legal, outputs_class_vec = engine.board_forward([gs.board])
-                    legal_move_list, cls_vec, endgame_flag = engine.post_process(outputs_legal, outputs_class_vec)
+                    outputs_legal, outputs_class_vec, value = engine.board_forward([gs.board])
+                    legal_move_list, cls_vec, value_full = engine.post_process(outputs_legal, outputs_class_vec, value)
                     legal_move_san = {gs.board.san(legal_move): float(cls_prob) for legal_move, cls_prob
                                       in zip(legal_move_list[0], cls_vec[0])}
                     print(f'[INFO] Probabilities for moves: {legal_move_san}')
                     cat = torch.distributions.Categorical(cls_vec[0])
 
-                    print(f'[INFO] Endgame flag: {endgame_flag[0]:.2g}')
+                    value_np = value_full.detach().numpy()[0]
+                    print(f'[INFO] Board value: {value_np}')
+
                     # Force legal move
                     while True:
 
-                        sample_idx = cat.sample()
-                        # sample_idx = torch.argmax(cls_vec[0])
+                        # sample_idx = cat.sample()
+                        sample_idx = torch.argmax(cls_vec[0])
                         sample = legal_move_list[0][sample_idx]
 
                         print(f'[INFO] Move in uci: {sample}')

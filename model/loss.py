@@ -23,7 +23,7 @@ class Criterion(torch.nn.Module):
         self.mse_weight = mse_weight
 
     def board_value_loss(self, pred_quality_vec: torch.Tensor, pred_value: torch.Tensor, 
-                         target_quality_vec: torch.Tensor, target_value: torch.Tensor):
+                         target_quality_vec: torch.Tensor, target_value: torch.Tensor, matching_idx: torch.Tensor):
         """Score for the board value; doing this MSE style"""
         
         mse_loss_handle = torch.nn.MSELoss()
@@ -34,31 +34,36 @@ class Criterion(torch.nn.Module):
         return loss
 
     def quality_loss(self, pred_quality_vec: torch.Tensor, pred_value: torch.Tensor, 
-                     target_quality_vec: torch.Tensor, target_value: torch.Tensor):
+                     target_quality_vec: torch.Tensor, target_value: torch.Tensor, matching_idx: torch.Tensor):
         """Score for the move strength. The move strength should be drawn from outside, or another class"""
 
-        loss_ce_gen = cross_entropy_gen(pred_quality_vec, target_quality_vec)
+        weight_mat = torch.zeros(pred_quality_vec.size()).to(device=pred_quality_vec.device) + self.eos_coef
+        for idx, weight_row in enumerate(weight_mat):
+            weight_row[int(matching_idx[idx])] = 1
+
+        loss_ce_gen = cross_entropy_gen(pred_quality_vec, target_quality_vec, weights=weight_mat)
 
         loss = {'loss_quality': loss_ce_gen}
         return loss
 
-    def get_loss(self, loss, pred_quality_vec, pred_value, target_quality_vec, target_value):
+    def get_loss(self, loss, pred_quality_vec, pred_value, target_quality_vec, target_value, matching_idx):
         loss_map = {
             'quality_loss': self.quality_loss,
             'board_value_loss': self.board_value_loss
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
-        return loss_map[loss](pred_quality_vec, pred_value, target_quality_vec, target_value)
+        return loss_map[loss](pred_quality_vec, pred_value, target_quality_vec, target_value, matching_idx)
 
     def forward(self, pred_quality_vec: torch.Tensor, pred_value: torch.Tensor, 
-                target_quality_vec: torch.Tensor, target_value: torch.Tensor):
+                target_quality_vec: torch.Tensor, target_value: torch.Tensor, matching_idx: torch.Tensor):
 
         self.batch_size = target_quality_vec.size()[0]
         self.query_size = target_quality_vec.size()[1]
 
         losses = {}
         for loss in self.losses:
-            losses.update(self.get_loss(loss, pred_quality_vec, pred_value, target_quality_vec, target_value))
+            losses.update(self.get_loss(loss, pred_quality_vec, pred_value, target_quality_vec, 
+                                        target_value, matching_idx))
 
         return losses
 
@@ -121,12 +126,15 @@ class FocalLoss(torch.nn.Module):
         )
 
 
-def cross_entropy_gen(input, target):
+def cross_entropy_gen(input, target, weights=None):
     """Implementing a general cross entropy function, accepting logits"""
     log_sum_vector = torch.logsumexp(input, 1)
     log_sum_vector_large = log_sum_vector.unsqueeze(0).repeat((input.size()[1], 1))
     target_normal = torch.sum(target, 1)
     target_normal_large = target_normal.unsqueeze(0).repeat((target.size()[1]), 1) + 1e-10
     targets_normalized = torch.div(target, target_normal_large.permute((1, 0)))
-    return torch.mean(-torch.sum(targets_normalized * (input - log_sum_vector_large.permute((1, 0))), 1))
+    if weights is None:
+        return torch.mean(-torch.sum(targets_normalized * (input - log_sum_vector_large.permute((1, 0))), 1))
+    else:
+        return torch.mean(-torch.sum(weights * targets_normalized * (input - log_sum_vector_large.permute((1, 0))), 1))
 

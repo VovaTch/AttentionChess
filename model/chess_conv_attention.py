@@ -33,26 +33,26 @@ class MultiHeadDoubleAttention(nn.Module):
         self.out = nn.Linear(d_model, d_model)
         self.relu = nn.ReLU()
 
-    def forward(self, q, k, v, mask=None):
+    def forward(self, q, k, v, src_mask=None):
         """Dimensions of q,k,v in this method: bs x 8 x 8 x8"""
         batch_size = q.size(0)
 
         # perform chess conv operation and split into h heads for keys
         k = self.k_conv(k.permute(0, 3, 1, 2))
-        k = self.relu(k)
-        k = self.k_conv(k).permute(0, 2, 3, 1).flatten(1, 2)
+        # k = torch.sin(k)
+        k = self.k2_conv(k).permute(0, 2, 3, 1).flatten(1, 2)
         k = k.view(batch_size, -1, self.h, self.d_k)
 
         # perform chess conv operation and split into h heads for queries
         q = self.q_conv(q.permute(0, 3, 1, 2))
-        q = self.relu(q)
-        q = self.k_conv(q).permute(0, 2, 3, 1).flatten(1, 2)
+        # q = torch.sin(q)
+        q = self.q2_conv(q).permute(0, 2, 3, 1).flatten(1, 2)
         q = q.view(batch_size, -1, self.h, self.d_k)
 
         # perform chess conv operation and split into h heads for values
         v = self.v_conv(v.permute(0, 3, 1, 2))
-        v = self.relu(v)
-        v = self.v_conv(v).permute(0, 2, 3, 1).flatten(1, 2)
+        # v = torch.sin(v)
+        v = self.v2_conv(v).permute(0, 2, 3, 1).flatten(1, 2)
         v = v.view(batch_size, -1, self.h, self.d_k)
 
         # transpose to get dimensions bs * h * sl * d_model
@@ -62,7 +62,7 @@ class MultiHeadDoubleAttention(nn.Module):
         v = v.transpose(1, 2)
 
         # calculate attention using function we will define next
-        scores = attention(q, k, v, self.d_k, mask, self.dropout)
+        scores = attention(q, k, v, self.d_k, src_mask, self.dropout)
 
         # concatenate heads and put through final linear layer
         concat = scores.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)
@@ -186,17 +186,17 @@ class ChessEncoderLayer(nn.Module):
     def __init__(self, d_model, heads, dropout=0.1):
         super().__init__()
 
-        self.norm_1 = Norm(d_model)
+        self.norm_1 = Norm(d_model)     
         self.norm_2 = Norm(d_model)
         self.attn = MultiHeadDoubleAttention(heads, d_model)
         self.ff = FeedForward(d_model)
         self.dropout_1 = nn.Dropout(dropout)
         self.dropout_2 = nn.Dropout(dropout)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, src_mask=None, *args, **kwargs):
 
         x2 = self.norm_1(x)
-        x = x + self.dropout_1(self.attn(x2, x2, x2, mask)).squeeze()
+        x = x + self.dropout_1(self.attn(x2, x2, x2, src_mask)).squeeze()
         x2 = self.norm_2(x)
         x = x + self.dropout_2(self.ff(x2))
 

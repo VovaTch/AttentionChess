@@ -10,7 +10,7 @@ from utils.util import board_to_tensor, legal_move_mask, move_to_tensor, \
     board_to_embedding_coord, move_to_coordinate
 from utils.matcher import match_moves
 from model.attchess import AttChess, BoardEmbTrainNet, MoveEmbTrainNet
-from data_loaders.game_roll import GameRoller, BoardNode, ScoreWinFast
+from data_loaders.game_roll import GameRoller, BoardNode, ScoreWinFast, InferenceBoardNode, InferenceMoveSearcher
 from data_loaders.dataloader import RuleAttentionChessLoader, collate_fn, BoardEmbeddingLoader, MoveEmbeddingLoader, SelfPlayChessLoader
 from model import loss
 
@@ -31,7 +31,7 @@ def main():
     
     # Make a quick checkmate
     nodes = list()
-    nodes.append(BoardNode(board, None, score))
+    nodes.append(InferenceBoardNode(board, None, score))
     nodes.append(nodes[-1].perform_move(chess.Move.from_uci('f2f3')))
     nodes.append(nodes[-1].perform_move(chess.Move.from_uci('e7e5')))
     nodes.append(nodes[-1].perform_move(chess.Move.from_uci('g2g4')))

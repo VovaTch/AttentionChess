@@ -10,16 +10,18 @@ from model.loss import Criterion
 
 @torch.no_grad()
 def quality_loss(pred_quality_vec: torch.Tensor, pred_value: torch.Tensor, 
-                 target_quality_vec: torch.Tensor, target_value: torch.Tensor, criterion: Criterion):
+                 target_quality_vec: torch.Tensor, target_value: torch.Tensor, 
+                 matching_idx: torch.Tensor, criterion: Criterion):
     """Goes to the criterion for the loss"""
-    loss = criterion.quality_loss(pred_quality_vec, pred_value, target_quality_vec, target_value)
+    loss = criterion.quality_loss(pred_quality_vec, pred_value, target_quality_vec, target_value, matching_idx)
     return loss['loss_quality']
 
 @torch.no_grad()
 def board_value_loss(pred_quality_vec: torch.Tensor, pred_value: torch.Tensor, 
-                 target_quality_vec: torch.Tensor, target_value: torch.Tensor, criterion: Criterion):
+                 target_quality_vec: torch.Tensor, target_value: torch.Tensor, 
+                 matching_idx: torch.Tensor, criterion: Criterion):
     """Goes to the criterion for the loss"""
-    loss = criterion.board_value_loss(pred_quality_vec, pred_value, target_quality_vec, target_value)
+    loss = criterion.board_value_loss(pred_quality_vec, pred_value, target_quality_vec, target_value, matching_idx)
     return loss['loss_board_value']
 
 

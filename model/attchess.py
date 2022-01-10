@@ -11,6 +11,7 @@ from base.base_model import BaseModel
 from utils.util import word_to_move, board_to_embedding_coord, move_to_coordinate
 from model.chess_conv_attention import hollow_chess_kernel
 from .chess_conv_attention import ChessEncoderLayer
+from .trigo_layers import TrigoEncoderLayer, TrigoDecoderLayer
 
 
 class MLP(nn.Module):
@@ -52,24 +53,28 @@ class AttChess(BaseModel):
         self.p_emb_flag = p_embedding
 
         # transformer encoder and decoder
-        self.chess_encoder = ChessEncoderLayer(d_model=hidden_dim, heads=num_heads, dropout=dropout)
+        # self.chess_encoder = ChessEncoderLayer(d_model=hidden_dim, heads=num_heads, dropout=dropout)
+        self.chess_encoder = TrigoEncoderLayer(batch_first=True, d_model=hidden_dim,
+                                                        nhead=num_heads, dropout=dropout)
         self.chess_encoder_stack = nn.TransformerEncoder(self.chess_encoder, num_encoder)
-
-        self.chess_decoder = nn.TransformerDecoderLayer(batch_first=True, d_model=hidden_dim,
+        self.chess_decoder = TrigoDecoderLayer(batch_first=True, d_model=hidden_dim,
                                                         nhead=num_heads, dropout=dropout)
         self.chess_decoder_stack = nn.TransformerDecoder(self.chess_decoder, num_decoder)
-
         self.move_quality_cls_head = MLP(hidden_dim, hidden_dim, 1, 5, dropout=dropout)
+        # self.chess_encoder_value = ChessEncoderLayer(d_model=hidden_dim, heads=num_heads, dropout=dropout)
+        self.chess_encoder_value = TrigoEncoderLayer(batch_first=True, d_model=hidden_dim,
+                                                        nhead=num_heads, dropout=dropout)
+        self.chess_encoder_value_stack = nn.TransformerEncoder(self.chess_encoder_value, num_encoder)
 
         # load board + move embeddings
         self.backbone_embedding = nn.Embedding(36, hidden_dim)
-        # self.backbone_embedding.requires_grad_(requires_grad=False)
-        # b_emb_weights = torch.load('model/board_embedding.pth', map_location=torch.device('cpu'))
-        # self.backbone_embedding.load_state_dict(b_emb_weights)
+        self.backbone_embedding.requires_grad_(requires_grad=False)
+        b_emb_weights = torch.load('model/board_embedding.pth', map_location=torch.device('cpu'))
+        self.backbone_embedding.load_state_dict(b_emb_weights)
         self.query_embedding = nn.Embedding(4865, hidden_dim, padding_idx=4864)
-        # self.query_embedding.requires_grad_(requires_grad=False)
-        # m_emb_weights = torch.load('model/move_embedding.pth', map_location=torch.device('cpu') )
-        # self.query_embedding.load_state_dict(m_emb_weights)
+        self.query_embedding.requires_grad_(requires_grad=False)
+        m_emb_weights = torch.load('model/move_embedding.pth', map_location=torch.device('cpu') )
+        self.query_embedding.load_state_dict(m_emb_weights)
 
         self.num_conv = num_chess_conv_layers
         self.end_conv = list()
@@ -83,6 +88,7 @@ class AttChess(BaseModel):
         self.end_head_conv = nn.Conv2d(self.hidden_dim, 1, (15, 15), padding=7)
         self.end_head_linear = nn.Linear(64, 1)
         self.batch_norm = nn.BatchNorm2d(self.hidden_dim)
+        self.dropout = nn.Dropout(p=dropout)
 
     def board_forward(self, boards: list[chess.Board]):
         """
@@ -126,22 +132,25 @@ class AttChess(BaseModel):
 
         # Transformer encoder + classification head
         boards_flattened = boards.flatten(1, 2)
-        encoder_output_board = self.chess_encoder(transformer_input)
-        encoder_output = encoder_output_board.flatten(1, 2)
-        
-        head_eo = encoder_output_board.clone()
+        encoder_output_board = self.chess_encoder_stack(transformer_input.flatten(1, 2))
+        head_eo = self.chess_encoder_value_stack(transformer_input.flatten(1, 2))
+        encoder_output = encoder_output_board #.flatten(1, 2)
+
+        # head_eo = encoder_output_board.clone()
+        head_eo = head_eo.view(batch_size, 8, 8, -1)
         head_eo = head_eo.permute(0, 3, 1, 2)
         
         # Board value head
         for idx in range(self.num_conv):
             head_eo_2 = head_eo.clone()
-            # self.end_conv[idx] = self.end_conv[idx].to(device)
             head_eo = self.conv_end_stack[idx](head_eo)
+            head_eo = self.dropout(head_eo)
             head_eo = self.relu(head_eo) 
             head_eo = self.batch_norm(head_eo)
             head_eo += head_eo_2
             
         head_eo = self.end_head_conv(head_eo)
+        head_eo = self.dropout(head_eo)
         head_eo = self.relu(head_eo)
         head_eo = head_eo.permute(0, 2, 3, 1).flatten(1, 2).squeeze(-1)
         board_value = self.end_head_linear(head_eo)
@@ -169,7 +178,7 @@ class AttChess(BaseModel):
 
         # Pass through decoder and classify
         queried_moves = self.query_embedding(query_words.long())
-        decoder_output = self.chess_decoder(queried_moves, encoder_output)
+        decoder_output = self.chess_decoder_stack(queried_moves, encoder_output)
         classification_scores = self.move_quality_cls_head(decoder_output)  # idx 255 is saved for resigning or draw
 
         return legal_move_out, classification_scores.squeeze(2), board_value.squeeze(-1)

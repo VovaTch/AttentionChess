@@ -7,17 +7,17 @@
         "args": {
             "hidden_dim": 32,
             "num_heads": 8,
-            "num_encoder": 6,
-            "num_decoder": 6,
-            "num_chess_conv_layers": 12,
-            "p_embedding": false,
-            "dropout": 0.0
+            "num_encoder": 4,
+            "num_decoder": 4,
+            "num_chess_conv_layers": 0,
+            "p_embedding": true,
+            "dropout": 0.1
         }
     },
     "data_loader": {
         "type": "RuleAttentionChessLoader",
         "args":{
-            "batch_size": 32,
+            "batch_size": 16,
             "shuffle": true,
             "validation_split": 0.01,
             "num_workers": 1
@@ -26,16 +26,16 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-2,
-            "weight_decay": 1e-4,
-            "amsgrad": false
+            "lr": 1e-3,
+            "weight_decay": 1e-6,
+            "amsgrad": true
         }
     },
     "loss":
     {
         "type": "Criterion",
         "args": {
-            "eos_coef": 0.25,
+            "eos_coef": 4e-3,
             "losses": ["quality_loss", "board_value_loss"]
         }
     },
@@ -48,12 +48,10 @@
         "quality_loss", "board_value_loss"
     ],
     "lr_scheduler": {
-        "type": "OneCycleLR",
+        "type": "StepLR",
         "args": {
-            "three_phase": true,
-            "steps_per_epoch": 30940,
-            "max_lr": 1e-2,
-            "epochs": 1
+            "step_size": 100,
+            "gamma": 0.1
         }
     },
     "trainer": {
@@ -63,7 +61,7 @@
         "save_period": 10,
         "verbosity": 2,
         
-        "monitor": "min val_mse_score_loss",
+        "monitor": "min val_loss",
         "early_stop": 1e10,
 
         "tensorboard": true
