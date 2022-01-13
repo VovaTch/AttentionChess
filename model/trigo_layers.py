@@ -3,6 +3,7 @@ import numpy
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from typing import Optional
 
 class TrigoLinear(nn.Module):
     """
@@ -34,40 +35,44 @@ class TrigoLinear(nn.Module):
             fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
             bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
             nn.init.uniform_(self.bias, -bound, bound)
-            
+    
     def forward(self, input: torch.Tensor):
         
-        # Register output sizes
-        input_size = input.size()
-        output_size = list(input_size)
-        output_size[-1] = self.out_features
-        
-        # perform operation w1 * sin(w2 * x + b2) + b1
-        input_flattened = input.view(-1, input_size[-1])
-        super_batch_size = input_flattened.size()[0]
-        
-        sin_weight_block = self.weight[:, :, 1].unsqueeze(2).repeat(1, 1, super_batch_size)
-        sin_input_block = input_flattened.permute((1, 0)).unsqueeze(0).repeat(self.out_features, 1, 1)
-        sin_bias_block = self.bias[:, :-1].unsqueeze(2).repeat(1, 1, super_batch_size)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
-        
-        weighted_trigo_out = torch.sin(sin_weight_block * sin_input_block + sin_bias_block)
-        out_weight_block = self.weight[:, :, 0].unsqueeze(2).repeat(1, 1, super_batch_size)
-        out_bias_block = self.bias[:, -1].unsqueeze(1).repeat(1, super_batch_size)
-        
-        trigo_out = torch.sum(out_weight_block * weighted_trigo_out, dim=1) + out_bias_block
-        trigo_out = trigo_out.permute((1, 0))
-            
-        # return unflattened tensor
-        return trigo_out.reshape(output_size)
+        return ripple_linear(input, self.out_features, self.weight, self.bias)
         
     def extra_repr(self) -> str:
         return 'in_features={}, out_features={}, bias={}'.format(
             self.in_features, self.out_features, self.bias is not None
         )
+
+@torch.jit.script
+def ripple_linear(input:torch.Tensor, out_features:int, weight:torch.Tensor, bias:torch.Tensor):
+    
+    # Register output sizes
+    input_size = input.size()
+    output_size = list(input_size)
+    output_size[-1] = out_features
+    
+    # perform operation w1 * sin(w2 * x + b2) + b1
+    input_flattened = input.view(-1, input_size[-1])
+    super_batch_size = input_flattened.size()[0]
+    
+    sin_weight_block = weight[:, :, 1].unsqueeze(2).repeat(1, 1, super_batch_size)
+    sin_input_block = input_flattened.permute((1, 0)).unsqueeze(0).repeat(out_features, 1, 1)
+    sin_bias_block = bias[:, :-1].unsqueeze(2).repeat(1, 1, super_batch_size)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+    
+    weighted_trigo_out = torch.sin(sin_weight_block * sin_input_block + sin_bias_block)
+    out_weight_block = weight[:, :, 0].unsqueeze(2).repeat(1, 1, super_batch_size)
+    out_bias_block = bias[:, -1].unsqueeze(1).repeat(1, super_batch_size)
+    
+    trigo_out = torch.sum(out_weight_block * weighted_trigo_out, dim=1) + out_bias_block
+    trigo_out = trigo_out.permute((1, 0))
         
+    # return unflattened tensor
+    return trigo_out.reshape(output_size)
         
 class TrigoAttention(nn.Module):
-    def __init__(self, heads, d_model, dropout = 0.1):
+    def __init__(self, heads:int, d_model:int, dropout:float = 0.1):
         super().__init__()
         
         self.d_model = d_model
@@ -78,9 +83,10 @@ class TrigoAttention(nn.Module):
         self.v_linear = TrigoLinear(d_model, d_model)
         self.k_linear = TrigoLinear(d_model, d_model)
         self.dropout = nn.Dropout(dropout)
+        self.dropout_p = dropout
         self.out = TrigoLinear(d_model, d_model)
     
-    def forward(self, q, k, v, mask=None):
+    def forward(self, q, k, v, mask:Optional[torch.Tensor]=None):
         
         bs = q.size(0)
         
@@ -96,7 +102,7 @@ class TrigoAttention(nn.Module):
         q = q.transpose(1,2)
         v = v.transpose(1,2)
 # calculate attention using function we will define next
-        scores = attention(q, k, v, self.d_k, mask, self.dropout)
+        scores = attention(q, k, v, self.d_k, mask, self.dropout_p)
         
         # concatenate heads and put through final linear layer
         concat = scores.transpose(1,2).contiguous()\
@@ -107,28 +113,26 @@ class TrigoAttention(nn.Module):
         return output
     
     
-def attention(q, k, v, d_k, mask=None, dropout=None):
+def attention(q, k, v, d_k:int, mask:Optional[torch.Tensor] = None, dropout_p:float=0.0):
     
     scores = torch.matmul(q, k.transpose(-2, -1)) /  math.sqrt(d_k)
     if mask is not None:
         mask = mask.unsqueeze(1)
         scores = scores.masked_fill(mask == 0, -1e9)
     scores = F.softmax(scores, dim=-1)
-        
-    if dropout is not None:
-        scores = dropout(scores)
+    scores = F.dropout(scores, p=dropout_p)
             
     output = torch.matmul(scores, v)
     return output
 
 
 class TrigoFeedForward(nn.Module):
-    def __init__(self, d_model, d_ff=2048, dropout = 0.1):
+    def __init__(self, d_model:int, d_ff:int=32, dropout:float = 0.1):
         super().__init__() 
         # We set d_ff as a default to 2048
-        self.linear_1 = nn.Linear(d_model, d_ff)
+        self.linear_1 = TrigoLinear(d_model, d_ff)
         self.dropout = nn.Dropout(dropout)
-        self.linear_2 = nn.Linear(d_ff, d_model)
+        self.linear_2 = TrigoLinear(d_ff, d_model)
     def forward(self, x):
         x = self.dropout(F.relu(self.linear_1(x)))
         x = self.linear_2(x)
@@ -136,7 +140,7 @@ class TrigoFeedForward(nn.Module):
     
     
 class Norm(nn.Module):
-    def __init__(self, d_model, eps = 1e-6):
+    def __init__(self, d_model:int, eps:float = 1e-6):
         super().__init__()
     
         self.size = d_model
@@ -151,7 +155,7 @@ class Norm(nn.Module):
     
     
 class TrigoEncoderLayer(nn.Module):
-    def __init__(self, d_model, nhead, dropout = 0.1, **kwargs):
+    def __init__(self, d_model:int, nhead:int, dropout:float = 0.1, batch_first:bool = False):
         super().__init__()
         self.norm_1 = Norm(d_model)
         self.norm_2 = Norm(d_model)
@@ -160,7 +164,8 @@ class TrigoEncoderLayer(nn.Module):
         self.dropout_1 = nn.Dropout(dropout)
         self.dropout_2 = nn.Dropout(dropout)
         
-    def forward(self, x, src_mask=None, *args, **kwargs):
+    def forward(self, x, src_mask:Optional[torch.Tensor]=None,
+                src_key_padding_mask:Optional[torch.Tensor]=None):
         x2 = self.norm_1(x)
         x = x + self.dropout_1(self.attn(x2,x2,x2,src_mask))
         x2 = self.norm_2(x)
@@ -169,7 +174,7 @@ class TrigoEncoderLayer(nn.Module):
     
     
 class TrigoDecoderLayer(nn.Module):
-    def __init__(self, d_model, nhead, dropout=0.1, **kwargs):
+    def __init__(self, d_model:int, nhead:int, dropout=0.1, batch_first:bool = False):
         super().__init__()
         self.norm_1 = Norm(d_model)
         self.norm_2 = Norm(d_model)
@@ -181,11 +186,13 @@ class TrigoDecoderLayer(nn.Module):
         
         self.attn_1 = TrigoAttention(nhead, d_model)
         self.attn_2 = TrigoAttention(nhead, d_model)
-        self.ff = TrigoFeedForward(d_model).cuda()
+        self.ff = TrigoFeedForward(d_model)
 
-    def forward(self, x, e_outputs, src_mask=None, tgt_mask=None, *args, **kwargs):
-        x2 = self.norm_1(x)
-        x = x + self.dropout_1(self.attn_1(x2, x2, x2, tgt_mask))
+    def forward(self, x, e_outputs, src_mask:Optional[torch.Tensor]=None, tgt_mask:Optional[torch.Tensor]=None, 
+                tgt_key_padding_mask:Optional[torch.Tensor]=None, memory_mask:Optional[torch.Tensor]=None, 
+                memory_key_padding_mask:Optional[torch.Tensor]=None):
+        # x2 = self.norm_1(x)
+        # x = x + self.dropout_1(self.attn_1(x2, x2, x2, tgt_mask))
         x2 = self.norm_2(x)
         x = x + self.dropout_2(self.attn_2(x2, e_outputs, e_outputs, src_mask))
         x2 = self.norm_3(x)

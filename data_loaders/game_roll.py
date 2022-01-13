@@ -52,7 +52,7 @@ class GameRoller:
             new_nodes = []
             
             used_model = self.model_good if board_list[0].turn else self.model_evil  
-            raw_legals, raw_outputs = used_model.board_forward(board_list)
+            raw_legals, raw_outputs = used_model(board_list)
             legal_moves, quality_vectors, _ = used_model.post_process(raw_legals, raw_outputs)
             
             for current_node, legal_move, quality_vec in zip(current_nodes, legal_moves, quality_vectors):
@@ -279,15 +279,52 @@ class InferenceBoardNode(BoardNode):
             return
 
         self.parent.score_function = self.score_function
+        self.parent.back_moves = self.back_moves + 0.5
+        
+        back_move_self_floor = np.floor(self.back_moves)
+        back_move_parent_floor = np.floor(self.parent.back_moves)
 
         # Position value score; take the value and divide by the number of children.
-        if self.board.turn and self.value_score * self.back_moves / (self.back_moves + 1) > self.parent.value_score:
-            self.parent.value_score = self.value_score * self.back_moves / (self.back_moves + 1)
+        if self.board.turn and self.value_score * back_move_self_floor / back_move_parent_floor < self.parent.value_score:
+            self.parent.value_score = self.value_score * back_move_self_floor / back_move_parent_floor
             
-        elif not self.board.turn and self.value_score * self.back_moves / (self.back_moves + 1) < self.parent.value_score:
-            self.parent.value_score = self.value_score * self.back_moves / (self.back_moves + 1)
+        elif not self.board.turn and self.value_score * back_move_self_floor / back_move_parent_floor > self.parent.value_score:
+            self.parent.value_score = self.value_score * back_move_self_floor / back_move_parent_floor
         
         self.parent.propagate_score()  # Recursively apply the score propogation
+        
+    def perform_move(self, move):
+        """Get a move and create a child node"""
+        board_copy = copy.deepcopy(self.board)
+        board_copy.push(move)
+        
+        value_new = torch.inf if not self.board.turn else -torch.inf
+        new_child = InferenceBoardNode(board_copy, self, self.score_function, None, value_new, 
+                                       device=self.device, moves_performed=self.moves_performed)
+        new_child.moves_performed += 1
+        self.children.append(new_child)
+        return new_child
+        
+    @staticmethod
+    def convert_to_inference_node(board_node: BoardNode):
+        
+        return InferenceBoardNode(board_node.board, board_node.parent, board_node.score_function, 
+                                  None, None, device=board_node.device)
+        
+    def __str__(self, level=0) -> str:
+        """
+        Print a representation of the entire tree with this node as root; useful for debugging.
+        """
+        
+        if level == 0:
+            move_list = [move for move in self.board.move_stack]
+            node_string = "\t" * level + f'Move history: {move_list}, move value: {self.value_score}\n'
+        else:
+            node_string = "\t" * level + f'Move played: {self.last_move}, move value: {self.value_score}\n'
+        for child in self.children:
+            node_string += child.__str__(level+1)
+        return node_string
+                
         
         
 class InferenceMoveSearcher:
@@ -300,10 +337,12 @@ class InferenceMoveSearcher:
     
     def return_sampled_node(self, node_query: InferenceBoardNode):
         
-        new_node = node_query.sample_move(legal_move_list=node_query.board.legal_moves, 
+        legal_move_list = [move for move in node_query.board.legal_moves]
+        new_node = node_query.sample_move(legal_move_list=legal_move_list, 
                                     quality_vector=node_query.quality_vector)
         
-        node_check = [node for node in node_query.children if node.last_move is new_node.last_move]
+        node_check = [node for node in node_query.children if node.last_move == new_node.last_move]
+        node_check_leaf = [node for node in self.leaf_nodes if node.board.move_stack == new_node.board.move_stack]
         
         # Check if the newly created node exists in the children list already. If not, create a new child node
         if len(node_check) == 1:
@@ -312,6 +351,8 @@ class InferenceMoveSearcher:
         else:
             current_node = node_check[0]
             node_query.children.pop()
+            if len(node_check_leaf) >= 1:
+                self.leaf_nodes.remove(node_check_leaf[0])
             new_flag = False
         current_node.num_of_visits += 1
         
@@ -320,7 +361,7 @@ class InferenceMoveSearcher:
     @torch.no_grad()
     def run_engine(self, current_node):
 
-        legal_move_out, quality_out, value_out = self.engine.board_forward([current_node.board])
+        legal_move_out, quality_out, value_out = self.engine([current_node.board])
         legal_move_list, quality_vec, value_pred = self.engine.post_process(legal_move_out, quality_out, value_out)
         current_node.legal_move_list = legal_move_list[0]
         current_node.quality_vector = quality_vec[0]
@@ -328,7 +369,7 @@ class InferenceMoveSearcher:
     
     def __call__(self, init_node: InferenceBoardNode, number_of_moves):
         
-        for idx in range(number_of_moves):
+        while len(self.leaf_nodes) < number_of_moves:
             
             current_node, new_flag = self.return_sampled_node(init_node)
             
@@ -337,21 +378,22 @@ class InferenceMoveSearcher:
 
             # Search further down
             while not new_flag:
+                current_node.value_score = torch.inf if not current_node.board.turn else -torch.inf
                 current_node, new_flag = self.return_sampled_node(current_node)
                 self.run_engine(current_node)
             
             self.leaf_nodes.append(current_node)
             
-        for leaf_node in self.leaf_nodes:
+        for leaf_node in self.leaf_nodes:  # TODO: Find out why there are -inf in the propagation
             leaf_node.propagate_score()
             
         # Find maximum value move
         if init_node.board.turn:
-            value_list = np.array([node.value for node in init_node.children])
+            value_list = np.array([node.value_score for node in init_node.children])
             max_value_idx = np.argmax(value_list)
             return init_node.children[max_value_idx].last_move
         else:
-            value_list = np.array([node.value for node in init_node.children])
+            value_list = np.array([node.value_score for node in init_node.children])
             min_value_idx = np.argmin(value_list)
             return init_node.children[min_value_idx].last_move
         

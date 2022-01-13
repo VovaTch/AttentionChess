@@ -11,7 +11,7 @@ from base.base_model import BaseModel
 from utils.util import word_to_move, board_to_embedding_coord, move_to_coordinate
 from model.chess_conv_attention import hollow_chess_kernel
 from .chess_conv_attention import ChessEncoderLayer
-from .trigo_layers import TrigoEncoderLayer, TrigoDecoderLayer
+from .trigo_layers import TrigoEncoderLayer, TrigoDecoderLayer, TrigoLinear
 
 
 class MLP(nn.Module):
@@ -85,12 +85,12 @@ class AttChess(BaseModel):
             
         self.conv_end_stack = nn.ModuleList(self.end_conv)
             
-        self.end_head_conv = nn.Conv2d(self.hidden_dim, 1, (15, 15), padding=7)
-        self.end_head_linear = nn.Linear(64, 1)
+        self.end_head_ripple_1 = TrigoLinear(hidden_dim, 1)
+        self.end_head_ripple_2 = TrigoLinear(64, 1)
         self.batch_norm = nn.BatchNorm2d(self.hidden_dim)
         self.dropout = nn.Dropout(p=dropout)
 
-    def board_forward(self, boards: list[chess.Board]):
+    def forward(self, boards: list[chess.Board]):
         """
         Takes a list of boards and converts them to tensors, gets a list of python-chess boards.
         """
@@ -110,9 +110,9 @@ class AttChess(BaseModel):
                 move_coor = move_to_coordinate(legal_move)
                 legal_move_torch[board_idx, move_coor[0], move_coor[1]] = 1
 
-        return self.forward(boards_torch.int(), legal_move_torch)
+        return self.raw_forward(boards_torch.int(), legal_move_torch)
 
-    def forward(self, boards: torch.Tensor, legal_move_tensor=None):
+    def raw_forward(self, boards: torch.Tensor, legal_move_tensor=None):
         """
         Input: chessboard embedding index input
         """
@@ -149,11 +149,9 @@ class AttChess(BaseModel):
             head_eo = self.batch_norm(head_eo)
             head_eo += head_eo_2
             
-        head_eo = self.end_head_conv(head_eo)
-        head_eo = self.dropout(head_eo)
-        head_eo = self.relu(head_eo)
         head_eo = head_eo.permute(0, 2, 3, 1).flatten(1, 2).squeeze(-1)
-        board_value = self.end_head_linear(head_eo)
+        head_eo = self.end_head_ripple_1(head_eo).squeeze(-1)
+        board_value = self.end_head_ripple_2(head_eo).squeeze(-1)
 
         # If the moves are need to be learned
         if legal_move_tensor is None:
@@ -181,8 +179,8 @@ class AttChess(BaseModel):
         decoder_output = self.chess_decoder_stack(queried_moves, encoder_output)
         classification_scores = self.move_quality_cls_head(decoder_output)  # idx 255 is saved for resigning or draw
 
-        return legal_move_out, classification_scores.squeeze(2), board_value.squeeze(-1)
-
+        return legal_move_out, classification_scores.squeeze(2), board_value
+    
     def post_process(self, legal_move_out, classification_scores, board_value):
 
         cls_score_batch = []

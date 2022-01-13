@@ -12,6 +12,8 @@ import model.attchess as module_arch
 from gui.gui_engine import GameState
 from utils.util import prepare_device, board_to_embedding_coord, move_to_coordinate
 from parse_config import ConfigParser
+from model.score_functions import ScoreWinFast
+from data_loaders.game_roll import InferenceMoveSearcher, InferenceBoardNode
 
 DIMENSION = 8
 IMAGES = {}
@@ -253,6 +255,7 @@ def main(args, config):
     engine.load_state_dict(checkpoint['state_dict'])
     engine = engine.to(device).eval()
     logger.info('Engine loaded')
+    move_searcher = InferenceMoveSearcher(engine=engine)
 
     # Prepare the screen of the gui
     screen = p.display.set_mode((args.width, args.height))
@@ -272,6 +275,7 @@ def main(args, config):
     promotion_flag = False
     selected_piece = None  # Selected piece for promotion
     undo_flag = False
+    score_function = ScoreWinFast(100)
 
     # game loop
     running = True
@@ -298,12 +302,14 @@ def main(args, config):
                     print('[INFO] Bot move')
 
                     # Run the network and get a move sample
-                    outputs_legal, outputs_class_vec, value = engine.board_forward([gs.board])
+                    outputs_legal, outputs_class_vec, value = engine([gs.board])
                     legal_move_list, cls_vec, value_full = engine.post_process(outputs_legal, outputs_class_vec, value)
                     legal_move_san = {gs.board.san(legal_move): float(cls_prob) for legal_move, cls_prob
                                       in zip(legal_move_list[0], cls_vec[0])}
                     print(f'[INFO] Probabilities for moves: {legal_move_san}')
-                    cat = torch.distributions.Categorical(cls_vec[0])
+                    
+                    # Initiate node for move searcher
+                    move_node = InferenceBoardNode(gs.board, None, score_function, cls_vec[0], value_full[0], device=device)
 
                     value_np = value_full.detach().numpy()[0]
                     print(f'[INFO] Board value: {value_np}')
@@ -311,9 +317,7 @@ def main(args, config):
                     # Force legal move
                     while True:
 
-                        # sample_idx = cat.sample()
-                        sample_idx = torch.argmax(cls_vec[0])
-                        sample = legal_move_list[0][sample_idx]
+                        sample = move_searcher(move_node, args.leaves)
 
                         print(f'[INFO] Move in uci: {sample}')
                         if sample in gs.board.legal_moves:
@@ -397,6 +401,7 @@ if __name__ == '__main__':
                         help='path to latest checkpoint (default: None)')
     parser.add_argument('-d', '--device', default='cuda', type=str,
                         help='indices of GPUs to enable (default: all)')
+    parser.add_argument('-l', '--leaves', default=100, type=int, help='Number of leaf nodes for move search')
     parser.add_argument('--height', type=int, default=512, help='Screen height')
     parser.add_argument('--width', type=int, default=512, help='Screen width')
     parser.add_argument('--max_fps', type=int, default=60, help='Maximum frames-per-second')

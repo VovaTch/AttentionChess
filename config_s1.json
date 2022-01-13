@@ -26,9 +26,9 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-3,
+            "lr": 1e-2,
             "weight_decay": 1e-6,
-            "amsgrad": true
+            "amsgrad": false
         }
     },
     "loss":
@@ -42,16 +42,18 @@
     "loss_weights":
     {
         "loss_quality": 1,
-        "loss_board_value": 1
+        "loss_board_value": 10
     },
     "metrics": [
         "quality_loss", "board_value_loss"
     ],
     "lr_scheduler": {
-        "type": "StepLR",
+        "type": "OneCycleLR",
         "args": {
-            "step_size": 100,
-            "gamma": 0.1
+            "max_lr": 1e-2,
+            "epochs": 1,
+            "steps_per_epoch": 12375,
+            "three_phase": true
         }
     },
     "trainer": {

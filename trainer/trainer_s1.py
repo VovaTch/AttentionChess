@@ -62,7 +62,7 @@ class Trainer(BaseTrainer):
             move_idx = move_idx.to(self.device)
             self.optimizer.zero_grad()
 
-            _, output_quality, output_value = self.model.board_forward(board)
+            _, output_quality, output_value = self.model(board)
             loss_dict = self.criterion(output_quality, output_value, quality, value, move_idx)
             loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
                         for loss_type in self.config['loss_weights']])
@@ -118,7 +118,7 @@ class Trainer(BaseTrainer):
                 value = value.to(self.device)
                 move_idx = move_idx.to(self.device)
 
-                _, output_quality, output_value = self.model.board_forward(board)
+                _, output_quality, output_value = self.model(board)
                 loss_dict = self.criterion(output_quality, output_value, quality, value, move_idx)
                 loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
                             for loss_type in self.config['loss_weights']])
