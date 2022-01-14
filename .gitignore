@@ -139,3 +139,5 @@ saved/
 # Ignore torch models
 *.pth
 *.pt
+!model/board_embedding.pth
+!model/move_embedding.pth
