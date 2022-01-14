@@ -11,7 +11,7 @@ A personal project for creating a transformer encoder-decoder-based chess engine
 * When promoting, a display of promotion options will appear, press on the wanted piece.
 * Move the king 2 squares to the right or left to castle.
 
-# Hotkeys:
+### Hotkeys:
 
 * Press **space** for the bot to perform a move.
 * **ctrl+z** to undo.
