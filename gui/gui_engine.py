@@ -2,6 +2,7 @@ import torch
 import numpy
 import chess
 import pygame as p
+import copy
 
 from utils.util import board_to_embedding_coord, word_to_move
 
@@ -36,8 +37,9 @@ class GameState:
         self.board.push(move_made)
         self.move_log.append(move_made)
 
-    def check_promotion(self, player_clicks):
+    def check_promotion(self, player_clicks_origin, flip_board=False):
         """Checks for promotions"""
+        player_clicks = self._check_flip(player_clicks_origin, flip_board=flip_board)
         pieces_moved_enc = self.get_embedding_board()[(7 - player_clicks[0][1]), player_clicks[0][0]]
 
         if (pieces_moved_enc in [7, 25] and player_clicks[1][1] == 0)\
@@ -46,16 +48,32 @@ class GameState:
         else:
             return False
 
-    def make_move_mouse(self, player_clicks, promotion=None):
+    @staticmethod
+    def _check_flip(player_clicks_origin, flip_board):
+        """
+        Checks if to flip user inputs
+        """
+        
+        if not flip_board:
+            player_clicks = copy.deepcopy(player_clicks_origin)
+        else:
+            player_clicks = [[7 - player_clicks_origin[0][0], 7 - player_clicks_origin[0][1]], 
+                             [7 - player_clicks_origin[1][0], 7 - player_clicks_origin[1][1]]]
+            
+        return player_clicks
+
+    def make_move_mouse(self, player_clicks_origin, promotion=None, flip_board=False):
         """Makes a chess move from user input"""
+
+        player_clicks = self._check_flip(player_clicks_origin, flip_board=flip_board)
+        
         move_coor_from = player_clicks[0][0] + 8 * (7 - player_clicks[0][1])
-        pieces_moved_enc = self.get_embedding_board()[(7 - player_clicks[0][1]), player_clicks[0][0]]
         move_coor_to = player_clicks[1][0] + 8 * (7 - player_clicks[1][1])
         pieces_captured_enc = self.get_embedding_board()[(7 - player_clicks[1][1]), player_clicks[1][0]]
 
         # Pawn promotions
         if player_clicks[1][1] in [0, 7] and promotion is not None:
-            diff = player_clicks[0][0] - player_clicks[1][0]
+            diff = (player_clicks[0][0] - player_clicks[1][0]) * (self.board.turn - 0.5) * 2
             # Queen
             if promotion == 'q':
                 move_coor_to = 65 - diff
@@ -71,17 +89,25 @@ class GameState:
 
         move_word = move_coor_from + 64 * move_coor_to
         move_chess = word_to_move(int(move_word + 1e-6))
+        move_performed_flag = self.make_move_uci(move_chess)
+        
+        if move_performed_flag:
+            
+            if not self.board.turn:  # Capture logging
+                if self.convert_embedding_to_piece(pieces_captured_enc) != '-':
+                    self.cap_white.append(self.convert_embedding_to_piece(pieces_captured_enc))
+            else:
+                if self.convert_embedding_to_piece(pieces_captured_enc) != '-':
+                    self.cap_black.append(self.convert_embedding_to_piece(pieces_captured_enc))
+
+        return move_performed_flag
+    
+    def make_move_uci(self, move_chess):
+        
         if move_chess in self.board.legal_moves:
             self.board.push(move_chess)
         else:
             return False
-
-        if not self.board.turn:  # Capture logging
-            if self.convert_embedding_to_piece(pieces_captured_enc) != '-':
-                self.cap_white.append(self.convert_embedding_to_piece(pieces_captured_enc))
-        else:
-            if self.convert_embedding_to_piece(pieces_captured_enc) != '-':
-                self.cap_black.append(self.convert_embedding_to_piece(pieces_captured_enc))
 
         # Endgame conditions
         if self.board.is_checkmate():
@@ -97,7 +123,7 @@ class GameState:
             self.is_draw = False
 
         return True
-
+        
     def undo_move(self):
         """Undo move"""
         try:

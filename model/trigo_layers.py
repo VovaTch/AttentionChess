@@ -120,7 +120,9 @@ def attention(q, k, v, d_k:int, mask:Optional[torch.Tensor] = None, dropout_p:fl
         mask = mask.unsqueeze(1)
         scores = scores.masked_fill(mask == 0, -1e9)
     scores = F.softmax(scores, dim=-1)
-    scores = F.dropout(scores, p=dropout_p)
+    
+    dropout_layer = nn.Dropout(p=dropout_p)
+    scores = dropout_layer(scores)
             
     output = torch.matmul(scores, v)
     return output
@@ -159,8 +161,8 @@ class TrigoEncoderLayer(nn.Module):
         super().__init__()
         self.norm_1 = Norm(d_model)
         self.norm_2 = Norm(d_model)
-        self.attn = TrigoAttention(nhead, d_model)
-        self.ff = TrigoFeedForward(d_model)
+        self.attn = TrigoAttention(nhead, d_model, dropout=dropout)
+        self.ff = TrigoFeedForward(d_model, dropout=dropout)
         self.dropout_1 = nn.Dropout(dropout)
         self.dropout_2 = nn.Dropout(dropout)
         
@@ -184,9 +186,9 @@ class TrigoDecoderLayer(nn.Module):
         self.dropout_2 = nn.Dropout(dropout)
         self.dropout_3 = nn.Dropout(dropout)
         
-        self.attn_1 = TrigoAttention(nhead, d_model)
-        self.attn_2 = TrigoAttention(nhead, d_model)
-        self.ff = TrigoFeedForward(d_model)
+        self.attn_1 = TrigoAttention(nhead, d_model, dropout=dropout)
+        self.attn_2 = TrigoAttention(nhead, d_model, dropout=dropout)
+        self.ff = TrigoFeedForward(d_model, dropout=dropout)
 
     def forward(self, x, e_outputs, src_mask:Optional[torch.Tensor]=None, tgt_mask:Optional[torch.Tensor]=None, 
                 tgt_key_padding_mask:Optional[torch.Tensor]=None, memory_mask:Optional[torch.Tensor]=None, 

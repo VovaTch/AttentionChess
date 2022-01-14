@@ -353,7 +353,10 @@ class InferenceMoveSearcher:
             node_query.children.pop()
             if len(node_check_leaf) >= 1:
                 self.leaf_nodes.remove(node_check_leaf[0])
-            new_flag = False
+            if current_node.endgame_flag:
+                new_flag = True # To deal with game-ending scenarios
+            else:
+                new_flag = False
         current_node.num_of_visits += 1
         
         return current_node, new_flag
@@ -365,7 +368,10 @@ class InferenceMoveSearcher:
         legal_move_list, quality_vec, value_pred = self.engine.post_process(legal_move_out, quality_out, value_out)
         current_node.legal_move_list = legal_move_list[0]
         current_node.quality_vector = quality_vec[0]
-        current_node.value_score = value_pred[0]
+        if current_node.endgame_flag:
+            current_node.value_score = current_node.result * 100
+        else:
+            current_node.value_score = value_pred[0]
     
     def __call__(self, init_node: InferenceBoardNode, number_of_moves):
         
@@ -396,4 +402,7 @@ class InferenceMoveSearcher:
             value_list = np.array([node.value_score for node in init_node.children])
             min_value_idx = np.argmin(value_list)
             return init_node.children[min_value_idx].last_move
+        
+    def reset(self):
+        self.leaf_nodes = []
         

@@ -27,11 +27,11 @@ def load_images(args):
         IMAGES[piece] = p.transform.scale(p.image.load(f'gui/pieces/{piece}.png'), (args.width // 8, args.height // 8))
 
 
-def draw_game_state(screen, gs, args, player_clicks):
+def draw_game_state(screen, gs, args, player_clicks, flip_board):
     """Draws the game square"""
     draw_board(screen, args)  # Draw the black and white board
-    highlight_sqares(screen, gs, args, player_clicks)
-    draw_pieces(screen, args, gs.get_embedding_board())
+    highlight_sqares(screen, gs, args, player_clicks, flip_board)
+    draw_pieces(screen, args, gs.get_embedding_board(), flip_board)
 
 
 def draw_board(screen, args, w_color='light gray', b_color='gray'):
@@ -70,12 +70,17 @@ def draw_text(screen, args, text):
     screen.blit(text_object, text_location)
 
 
-def highlight_sqares(screen, gs:GameState, args, player_clicks,
+def highlight_sqares(screen, gs:GameState, args, player_clicks_origin, flip_board,
                      highlight_piece_color='red', highlight_move_color='orange'):
     """Draws highlights for pieces and possible moves"""
-    if len(player_clicks) == 0:
+    if len(player_clicks_origin) == 0:
         return
-
+    
+    if flip_board:
+        player_clicks = [[7 - player_clicks_origin[0][0], 7 - player_clicks_origin[0][1]]]
+    else:
+        player_clicks = player_clicks_origin
+    
     move_coor_from = player_clicks[0][0] + 8 * (7 - player_clicks[0][1])
 
     # Collect all the moves to be highlighted
@@ -93,16 +98,18 @@ def highlight_sqares(screen, gs:GameState, args, player_clicks,
     surface.set_alpha(100)
     surface.fill(p.Color(highlight_piece_color))
 
-    screen.blit(surface, (player_clicks[0][0] * args.width // 8, player_clicks[0][1] * args.height // 8))
+    screen.blit(surface, (player_clicks_origin[0][0] * args.width // 8, player_clicks_origin[0][1] * args.height // 8))
 
     surface.fill(p.Color(highlight_move_color))
     for move in display_list:
         move_word = move.to_square
         column, row = int(move_word % 8), int(move_word // 8)
+        if flip_board:
+            column, row = 7 - column, 7 - row
         screen.blit(surface, (column * args.width // 8, (7 - row) * args.height // 8))
 
 
-def animate_move(screen, gs: GameState, args, move: chess.Move, clock, frames_per_square=3,
+def animate_move(screen, gs: GameState, args, move: chess.Move, clock, flip_board, frames_per_square=3,
                  w_color='light gray', b_color='gray'):
 
     colors = [p.Color(w_color), p.Color(b_color)]
@@ -119,15 +126,22 @@ def animate_move(screen, gs: GameState, args, move: chess.Move, clock, frames_pe
     frame_count = (abs(d_r) + abs(d_c)) * frames_per_square
     for frame in range(frame_count + 1):
         row_mid, column_mid = row_from + d_r * frame / frame_count, colomn_from + d_c * frame / frame_count
+        
+        if flip_board:
+            row_mid, column_mid = 7 - row_mid, 7 - column_mid
 
         draw_board(screen, args, w_color=w_color, b_color=b_color)
         embedded_board = board_to_embedding_coord(gs.board)
-        draw_pieces(screen, args, embedded_board)
+        draw_pieces(screen, args, embedded_board, flip_board)
 
         # Erase the moved piece
         color = colors[(row_to + (1 + column_to)) % 2]
-        p.draw.rect(screen, color, p.Rect(row_to * args.width // 8, (7 - column_to) * args.height // 8,
-                                          args.width // 8, args.height // 8))
+        if not flip_board:
+            p.draw.rect(screen, color, p.Rect(row_to * args.width // 8, (7 - column_to) * args.height // 8,
+                                            args.width // 8, args.height // 8))
+        else:
+            p.draw.rect(screen, color, p.Rect((7 - row_to) * args.width // 8, (column_to) * args.height // 8,
+                                            args.width // 8, args.height // 8))
 
         # Draw the moving piece
         embedded_board_flipped = torch.flip(embedded_board, [0])
@@ -191,10 +205,13 @@ def promotion_selector(args):
     return selected
 
 
-def draw_pieces(screen, args, embedding_board):
+def draw_pieces(screen, args, embedding_board, flip_board):
     """Drawing the pieces on the board"""
 
-    embedding_board_flipped = torch.flip(embedding_board, [0])  # For display
+    if flip_board:
+        embedding_board_flipped = torch.flip(embedding_board, [1])  # For display
+    else:
+        embedding_board_flipped = torch.flip(embedding_board, [0])  # For display
 
     for row in range(DIMENSION):
         for column in range(DIMENSION):
@@ -253,7 +270,7 @@ def main(args, config):
     engine = config.init_obj('arch', module_arch)
     checkpoint = torch.load(config.resume, map_location=torch.device('cpu'))
     engine.load_state_dict(checkpoint['state_dict'])
-    engine = engine.to(device).eval()
+    engine = engine.to(device).eval()   
     logger.info('Engine loaded')
     move_searcher = InferenceMoveSearcher(engine=engine)
 
@@ -276,6 +293,7 @@ def main(args, config):
     selected_piece = None  # Selected piece for promotion
     undo_flag = False
     score_function = ScoreWinFast(100)
+    flip_board = False
 
     # game loop
     running = True
@@ -291,13 +309,15 @@ def main(args, config):
             # ----------------------- KEYBOARD HANDLERS ----------------------------
             elif e.type == p.KEYDOWN:
 
-                if keys[p.K_z] and keys[p.K_LCTRL]:
+                # Undo move
+                if keys[p.K_z] and keys[p.K_LCTRL]: 
                     gs.undo_move()
                     print('[INFO] Undoing move')
                     sq_selected = ()
                     player_clicks = []
                     undo_flag = True
 
+                # Perform computer move
                 elif keys[p.K_SPACE]:
                     print('[INFO] Bot move')
 
@@ -314,16 +334,15 @@ def main(args, config):
                     value_np = value_full.detach().numpy()[0]
                     print(f'[INFO] Board value: {value_np}')
 
-                    # Force legal move
-                    while True:
+                    sample = move_searcher(move_node, args.leaves)
+                    move_searcher.reset()
 
-                        sample = move_searcher(move_node, args.leaves)
-
-                        print(f'[INFO] Move in uci: {sample}')
-                        if sample in gs.board.legal_moves:
-                            gs.board.push(sample)
-                            break
-                        
+                    print(f'[INFO] Move in uci: {sample}')
+                    gs.make_move_uci(sample)
+                    animate_move(screen, gs, args, gs.board.peek(), clock, flip_board)
+                    undo_flag = False
+                    
+                # Reset board    
                 elif keys[p.K_r] and keys[p.K_LCTRL]:
                     gs.reset()
                     sq_selected = ()
@@ -331,6 +350,14 @@ def main(args, config):
                     promotion_flag = False
                     selected_piece = None  # Selected piece for promotion
                     undo_flag = False
+                    
+                # Flip board
+                elif keys[p.K_f] and keys[p.K_LCTRL]:
+                    flip_board = not flip_board
+                    
+                # Quit game
+                elif keys[p.K_q] and keys[p.K_LCTRL]:
+                    running = False
 
             # ----------------------- MOUSE HANDLERS ----------------------------
             elif e.type == p.MOUSEBUTTONDOWN:
@@ -359,22 +386,22 @@ def main(args, config):
                 if len(player_clicks) == 2:
 
                     if not promotion_flag:
-                        promotion_flag = gs.check_promotion(player_clicks)
+                        promotion_flag = gs.check_promotion(player_clicks, flip_board)
                     else:
                         promotion_flag = False
 
-                    valid_move = gs.make_move_mouse(player_clicks, promotion=selected_piece)
+                    valid_move = gs.make_move_mouse(player_clicks, promotion=selected_piece, flip_board=flip_board)
                     selected_piece = None
                     if not valid_move:
                         print('[WARN] Illegal move!!!')
                     else:
-                        animate_move(screen, gs, args, gs.board.peek(), clock)
+                        animate_move(screen, gs, args, gs.board.peek(), clock, flip_board=flip_board)
                         undo_flag = False
                     sq_selected = ()  # Zero out the player inputs
                     if not promotion_flag:
                         player_clicks = []
 
-        draw_game_state(screen, gs, args, player_clicks)
+        draw_game_state(screen, gs, args, player_clicks, flip_board=flip_board)
         if not undo_flag:
             if gs.is_white_checkmate:
                 draw_text(screen, args, 'WHITE CHECKMATE')

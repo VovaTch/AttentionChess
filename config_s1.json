@@ -11,7 +11,7 @@
             "num_decoder": 4,
             "num_chess_conv_layers": 0,
             "p_embedding": true,
-            "dropout": 0.1
+            "dropout": 0.0
         }
     },
     "data_loader": {
