@@ -1,5 +1,6 @@
 import chess
 import pygame as p
+from pygame import gfxdraw
 import argparse
 import sys
 import collections
@@ -23,8 +24,12 @@ def load_images(args):
     """Connect images to board state"""
     pieces = ['pawnw', 'knightw', 'bishopw', 'rookw', 'queenw', 'kingw',
               'pawnb', 'knightb', 'bishopb', 'rookb', 'queenb', 'kingb']
-    for piece in pieces:
-        IMAGES[piece] = p.transform.scale(p.image.load(f'gui/pieces/{piece}.png'), (args.width // 8, args.height // 8))
+    if args.use_vanilla_pieces:
+        for piece in pieces:
+            IMAGES[piece] = p.transform.smoothscale(p.image.load(f'gui/pieces/{piece}.png'), (args.width // 8, args.height // 8))
+    else:
+        for piece in pieces:
+            IMAGES[piece] = p.transform.smoothscale(p.image.load(f'gui/pieces/{piece}d.png'), (args.width // 8, args.height // 8))
 
 
 def draw_game_state(screen, gs, args, player_clicks, flip_board):
@@ -334,7 +339,7 @@ def main(args, config):
                     value_np = value_full.detach().numpy()[0]
                     print(f'[INFO] Board value: {value_np}')
 
-                    sample = move_searcher(move_node, args.leaves)
+                    sample = move_searcher(move_node, args.leaves, min_depth=args.min_depth)
                     move_searcher.reset()
 
                     print(f'[INFO] Move in uci: {sample}')
@@ -428,10 +433,15 @@ if __name__ == '__main__':
                         help='path to latest checkpoint (default: None)')
     parser.add_argument('-d', '--device', default='cuda', type=str,
                         help='indices of GPUs to enable (default: all)')
-    parser.add_argument('-l', '--leaves', default=100, type=int, help='Number of leaf nodes for move search')
-    parser.add_argument('--height', type=int, default=512, help='Screen height')
-    parser.add_argument('--width', type=int, default=512, help='Screen width')
+    parser.add_argument('-l', '--leaves', default=30, type=int, help='Number of leaf nodes for move search')
+    parser.add_argument('--min_depth', type=int, default=6, help='Minimum computation depth')
+    parser.add_argument('--height', type=int, default=768, help='Screen height')
+    parser.add_argument('--width', type=int, default=768, help='Screen width')
     parser.add_argument('--max_fps', type=int, default=60, help='Maximum frames-per-second')
+    parser.add_argument('--exp_prob', type=float, default=0.25, help='Move search exploration probability ' +
+                        'for deviating from the arg-max policy')
+    parser.add_argument('--use_vanilla_pieces', action='store_true', 
+                        help='Flag for using default pieces instead of self painted ones')
 
     # custom cli options to modify configuration from default values given in json file.
     CustomArgs = collections.namedtuple('CustomArgs', 'flags type target')

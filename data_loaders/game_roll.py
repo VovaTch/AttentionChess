@@ -261,6 +261,7 @@ class InferenceBoardNode(BoardNode):
         self.quality_vector = quality_prob_vec
         self.value_score = value_score
         self.num_of_visits = 0
+        self.search_depth = 0
         self.back_moves = 1
         
         # Need to do this hack because can't check directly if the board is an initial position or not.
@@ -335,11 +336,11 @@ class InferenceMoveSearcher:
         self.leaf_nodes = []
         self.engine = copy.deepcopy(engine)
     
-    def return_sampled_node(self, node_query: InferenceBoardNode):
+    def return_sampled_node(self, node_query: InferenceBoardNode, min_depth=1, exploration_prob=0.25):
         
         legal_move_list = [move for move in node_query.board.legal_moves]
         new_node = node_query.sample_move(legal_move_list=legal_move_list, 
-                                    quality_vector=node_query.quality_vector)
+                                    quality_vector=node_query.quality_vector, exploration_prob=exploration_prob)
         
         node_check = [node for node in node_query.children if node.last_move == new_node.last_move]
         node_check_leaf = [node for node in self.leaf_nodes if node.board.move_stack == new_node.board.move_stack]
@@ -358,6 +359,11 @@ class InferenceMoveSearcher:
             else:
                 new_flag = False
         current_node.num_of_visits += 1
+        current_node.search_depth = node_query.search_depth + 1
+        
+        # Do not save leaf node if depth is too shallow
+        if current_node.search_depth < min_depth:
+            new_flag = False
         
         return current_node, new_flag
     
@@ -373,11 +379,12 @@ class InferenceMoveSearcher:
         else:
             current_node.value_score = value_pred[0]
     
-    def __call__(self, init_node: InferenceBoardNode, number_of_moves):
+    def __call__(self, init_node: InferenceBoardNode, number_of_moves, min_depth=1, exploration_prob=0.25):
         
         while len(self.leaf_nodes) < number_of_moves:
             
-            current_node, new_flag = self.return_sampled_node(init_node)
+            current_node, new_flag = self.return_sampled_node(init_node, min_depth=min_depth, 
+                                                              exploration_prob=exploration_prob)
             
             # Activate the net
             self.run_engine(current_node)
@@ -385,7 +392,8 @@ class InferenceMoveSearcher:
             # Search further down
             while not new_flag:
                 current_node.value_score = torch.inf if not current_node.board.turn else -torch.inf
-                current_node, new_flag = self.return_sampled_node(current_node)
+                current_node, new_flag = self.return_sampled_node(current_node, min_depth=min_depth, 
+                                                                  exploration_prob=exploration_prob)
                 self.run_engine(current_node)
             
             self.leaf_nodes.append(current_node)

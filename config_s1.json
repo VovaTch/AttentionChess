@@ -26,8 +26,8 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-2,
-            "weight_decay": 1e-6,
+            "lr": 1e-1,
+            "weight_decay": 1e-5,
             "amsgrad": false
         }
     },
@@ -50,7 +50,7 @@
     "lr_scheduler": {
         "type": "OneCycleLR",
         "args": {
-            "max_lr": 1e-2,
+            "max_lr": 1e-1,
             "epochs": 1,
             "steps_per_epoch": 12375,
             "three_phase": true

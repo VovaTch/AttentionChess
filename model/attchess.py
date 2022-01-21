@@ -181,7 +181,8 @@ class AttChess(BaseModel):
 
         return legal_move_out, classification_scores.squeeze(2), board_value
     
-    def post_process(self, legal_move_out, classification_scores, board_value):
+    def post_process(self, legal_move_out, classification_scores, board_value, filter_low_prob=True):
+        # TODO: filter low probability moves to prevent the bot from doing nonsense.
 
         cls_score_batch = []
         legal_move_list = []
