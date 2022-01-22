@@ -1,6 +1,6 @@
 # AttentionChess
 
-![alt text](https://github.com/VovaTch/AttentionChess/blob/main/Attchess.png=300x300)
+![alt text](https://github.com/VovaTch/AttentionChess/blob/main/Attchess.png =300x300)
 
 
 A personal project for creating a transformer encoder-decoder-based chess engine. This project is based on PyTorch and Python Chess. I use an Encoder-Decoder architecture by encoding the chess board as words with positional encoding. The queries are all the legal moves (coded as 4864 possible moves in UCI format), and the output is a logit probability vector for all the moves, and a value from -100 to 100 that determines the state of the board the closer to 100, white is better, the closer to -100 black is better. A drawing possition is 0.
