@@ -74,6 +74,8 @@ class GameState:
         # Pawn promotions
         if player_clicks[1][1] in [0, 7] and promotion is not None:
             diff = (player_clicks[0][0] - player_clicks[1][0]) * (self.board.turn - 0.5) * 2
+            if self.board.turn:
+                diff *= -1
             # Queen
             if promotion == 'q':
                 move_coor_to = 65 - diff

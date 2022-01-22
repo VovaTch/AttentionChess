@@ -15,7 +15,7 @@ from utils.util import prepare_device, board_to_embedding_coord, move_to_coordin
 from parse_config import ConfigParser
 from model.score_functions import ScoreWinFast
 from data_loaders.game_roll import InferenceMoveSearcher, InferenceBoardNode
-
+()
 DIMENSION = 8
 IMAGES = {}
 
@@ -30,6 +30,8 @@ def load_images(args):
     else:
         for piece in pieces:
             IMAGES[piece] = p.transform.smoothscale(p.image.load(f'gui/pieces/{piece}d.png'), (args.width // 8, args.height // 8))
+            
+    IMAGES['background'] = p.transform.smoothscale(p.image.load(f'gui/pieces/Desert_board.png'), (args.width, args.height))
 
 
 def draw_game_state(screen, gs, args, player_clicks, flip_board):
@@ -39,17 +41,26 @@ def draw_game_state(screen, gs, args, player_clicks, flip_board):
     draw_pieces(screen, args, gs.get_embedding_board(), flip_board)
 
 
-def draw_board(screen, args, w_color='light gray', b_color='gray'):
+def draw_rect_alpha(surface, color, rect, alpha):
+    "Draws a rectangle with transparency"
+    shape_surf = p.Surface(p.Rect(rect).size)
+    shape_surf.set_alpha(alpha * 256)
+    p.draw.rect(shape_surf, color, shape_surf.get_rect())
+    surface.blit(shape_surf, rect)
+
+
+def draw_board(screen, args, w_color='light gray', b_color='gray', alpha=0.35):
     """Draws the chess board on screen"""
     colors = [p.Color(w_color), p.Color(b_color)]
 
     # Draw the board itself
+    screen.blit(IMAGES['background'], p.Rect(0, 0, args.width, args.height))
     for row in range(DIMENSION):
         for column in range(DIMENSION):
             color = colors[(row + column) % 2]
-            p.draw.rect(screen, color, p.Rect(column * args.width // 8, row * args.height // 8,
-                                              args.width // 8, args.height // 8))
-
+            alpha_multiplier = 1.5 if (row + column) % 2 == 0 else 1.0
+            draw_rect_alpha(screen, color, (column * args.width // 8, row * args.height // 8,
+                                              args.width // 8, args.height // 8), alpha=alpha * alpha_multiplier)
 
 def draw_text(screen, args, text):
     """Writes the text on the screen"""
@@ -435,8 +446,8 @@ if __name__ == '__main__':
                         help='indices of GPUs to enable (default: all)')
     parser.add_argument('-l', '--leaves', default=30, type=int, help='Number of leaf nodes for move search')
     parser.add_argument('--min_depth', type=int, default=6, help='Minimum computation depth')
-    parser.add_argument('--height', type=int, default=768, help='Screen height')
-    parser.add_argument('--width', type=int, default=768, help='Screen width')
+    parser.add_argument('--height', type=int, default=1000, help='Screen height')
+    parser.add_argument('--width', type=int, default=1000, help='Screen width')
     parser.add_argument('--max_fps', type=int, default=60, help='Maximum frames-per-second')
     parser.add_argument('--exp_prob', type=float, default=0.25, help='Move search exploration probability ' +
                         'for deviating from the arg-max policy')
