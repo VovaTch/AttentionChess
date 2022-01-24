@@ -22,7 +22,7 @@ class GameRoller:
         self.move_limit = move_limit
         self.argmax_start = argmax_start
         self.discard_draws = discard_draws
-
+        
         self.board_buffer = []
         self.move_buffer = []
         self.move_vec_buffer = []
@@ -321,7 +321,7 @@ class InferenceBoardNode(BoardNode):
             move_list = [move for move in self.board.move_stack]
             node_string = "\t" * level + f'Move history: {move_list}, move value: {self.value_score}\n'
         else:
-            node_string = "\t" * level + f'Move played: {self.last_move}, move value: {self.value_score}\n'
+            node_string = "\t" * level + f'Move played: {self.parent.board.san(self.last_move)}, move value: {self.value_score}\n'
         for child in self.children:
             node_string += child.__str__(level+1)
         return node_string
@@ -332,15 +332,15 @@ class InferenceMoveSearcher:
     """
     MCTS move searcher; expand tree according to policy, find the best move according to value.
     """
-    def __init__(self, engine: AttChess):
+    def __init__(self, engine: AttChess, num_pruned_moves=5):
         self.leaf_nodes = []
+        self.num_pruned_moves = num_pruned_moves
         self.engine = copy.deepcopy(engine)
     
     def return_sampled_node(self, node_query: InferenceBoardNode, min_depth=1, exploration_prob=0.25):
         
-        legal_move_list = [move for move in node_query.board.legal_moves]
-        new_node = node_query.sample_move(legal_move_list=legal_move_list, 
-                                    quality_vector=node_query.quality_vector, exploration_prob=exploration_prob)
+        new_node = node_query.sample_move(legal_move_list=node_query.legal_move_list, 
+                                          quality_vector=node_query.quality_vector, exploration_prob=exploration_prob)
         
         node_check = [node for node in node_query.children if node.last_move == new_node.last_move]
         node_check_leaf = [node for node in self.leaf_nodes if node.board.move_stack == new_node.board.move_stack]
@@ -371,7 +371,8 @@ class InferenceMoveSearcher:
     def run_engine(self, current_node):
 
         legal_move_out, quality_out, value_out = self.engine([current_node.board])
-        legal_move_list, quality_vec, value_pred = self.engine.post_process(legal_move_out, quality_out, value_out)
+        legal_move_list, quality_vec, value_pred = self.engine.post_process(legal_move_out, quality_out, 
+                                                                            value_out, num_pruned_moves=self.num_pruned_moves)
         current_node.legal_move_list = legal_move_list[0]
         current_node.quality_vector = quality_vec[0]
         if current_node.endgame_flag:
@@ -387,14 +388,24 @@ class InferenceMoveSearcher:
                                                               exploration_prob=exploration_prob)
             
             # Activate the net
-            self.run_engine(current_node)
+            if not current_node.endgame_flag:
+                self.run_engine(current_node)
+            else:
+                new_flag = True
+                current_node.value_score = current_node.result * 100
 
             # Search further down
             while not new_flag:
+                
                 current_node.value_score = torch.inf if not current_node.board.turn else -torch.inf
                 current_node, new_flag = self.return_sampled_node(current_node, min_depth=min_depth, 
                                                                   exploration_prob=exploration_prob)
-                self.run_engine(current_node)
+                
+                if not current_node.endgame_flag:
+                    self.run_engine(current_node)
+                else:
+                    new_flag = True
+                    current_node.value_score = current_node.result * 100
             
             self.leaf_nodes.append(current_node)
             

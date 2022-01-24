@@ -1,4 +1,5 @@
 import chess
+from numpy import argmax
 import pygame as p
 from pygame import gfxdraw
 import argparse
@@ -271,6 +272,7 @@ def extract_piece_from_embedding(emb):
     return piece
 
 
+@torch.no_grad()
 def main(args, config):
 
     # Windows boiler code stuff
@@ -288,7 +290,7 @@ def main(args, config):
     engine.load_state_dict(checkpoint['state_dict'])
     engine = engine.to(device).eval()   
     logger.info('Engine loaded')
-    move_searcher = InferenceMoveSearcher(engine=engine)
+    move_searcher = InferenceMoveSearcher(engine=engine, num_pruned_moves=3)
 
     # Prepare the screen of the gui
     screen = p.display.set_mode((args.width, args.height))
@@ -339,19 +341,22 @@ def main(args, config):
 
                     # Run the network and get a move sample
                     outputs_legal, outputs_class_vec, value = engine([gs.board])
-                    legal_move_list, cls_vec, value_full = engine.post_process(outputs_legal, outputs_class_vec, value)
+                    legal_move_list, cls_vec, value_full = engine.post_process(outputs_legal, outputs_class_vec, 
+                                                                               value, num_pruned_moves=None)
                     legal_move_san = {gs.board.san(legal_move): float(cls_prob) for legal_move, cls_prob
                                       in zip(legal_move_list[0], cls_vec[0])}
                     print(f'[INFO] Probabilities for moves: {legal_move_san}')
                     
                     # Initiate node for move searcher
                     move_node = InferenceBoardNode(gs.board, None, score_function, cls_vec[0], value_full[0], device=device)
+                    move_node.legal_move_list = legal_move_list[0]
 
                     value_np = value_full.detach().numpy()[0]
                     print(f'[INFO] Board value: {value_np}')
 
                     sample = move_searcher(move_node, args.leaves, min_depth=args.min_depth)
                     move_searcher.reset()
+                    # sample = legal_move_list[0][torch.argmax(cls_vec[0]).int()]
 
                     print(f'[INFO] Move in uci: {sample}')
                     gs.make_move_uci(sample)
@@ -444,8 +449,8 @@ if __name__ == '__main__':
                         help='path to latest checkpoint (default: None)')
     parser.add_argument('-d', '--device', default='cuda', type=str,
                         help='indices of GPUs to enable (default: all)')
-    parser.add_argument('-l', '--leaves', default=30, type=int, help='Number of leaf nodes for move search')
-    parser.add_argument('--min_depth', type=int, default=6, help='Minimum computation depth')
+    parser.add_argument('-l', '--leaves', default=10, type=int, help='Number of leaf nodes for move search')
+    parser.add_argument('--min_depth', type=int, default=5, help='Minimum computation depth')
     parser.add_argument('--height', type=int, default=1000, help='Screen height')
     parser.add_argument('--width', type=int, default=1000, help='Screen width')
     parser.add_argument('--max_fps', type=int, default=60, help='Maximum frames-per-second')

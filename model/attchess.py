@@ -181,7 +181,7 @@ class AttChess(BaseModel):
 
         return legal_move_out, classification_scores.squeeze(2), board_value
     
-    def post_process(self, legal_move_out, classification_scores, board_value, filter_low_prob=True):
+    def post_process(self, legal_move_out, classification_scores, board_value, num_pruned_moves=None):
         # TODO: filter low probability moves to prevent the bot from doing nonsense.
 
         cls_score_batch = []
@@ -209,6 +209,29 @@ class AttChess(BaseModel):
             part_cls_score = cls_end_score_ind[:word_idx + 1].clone()
             part_cls_score = torch.softmax(part_cls_score, 0)
             cls_score_batch.append(part_cls_score)
+
+        # Consider only the 5 top moves in the policy
+        if num_pruned_moves is not None:
+            
+            cls_score_pruned = list()
+            legal_move_list_pruned = list()
+            
+            for batch_idx, (cls_score, legal_move_sublist) in enumerate(zip(cls_score_batch, legal_move_list)):
+                cls_score_sorted, sort_idx = torch.sort(cls_score, descending=True)
+                if cls_score_sorted.shape[-1] < num_pruned_moves:
+                    cls_score_pruned_ind = cls_score_sorted
+                    legal_moves_pruned_ind = [legal_move_sublist[idx] for idx in sort_idx]
+                else:
+                    cls_score_pruned_ind = cls_score_sorted[:num_pruned_moves]
+                    idx_pruned = sort_idx[:num_pruned_moves]
+                    legal_moves_pruned_ind = [legal_move_sublist[idx] for idx in idx_pruned]
+                    
+                cls_score_pruned_ind /= torch.sum(cls_score_pruned_ind)
+                cls_score_pruned.append(cls_score_pruned_ind)
+                legal_move_list_pruned.append(legal_moves_pruned_ind)
+                
+            legal_move_list = legal_move_list_pruned
+            cls_score_batch = cls_score_pruned
 
         return legal_move_list, cls_score_batch, board_value * 100
 
@@ -275,7 +298,7 @@ class TransformerAuxDecoder(torch.nn.TransformerDecoder):
     def forward(self, tgt: torch.Tensor, memory: torch.Tensor, tgt_mask: Optional[torch.Tensor] = None,
                 memory_mask: Optional[torch.Tensor] = None, tgt_key_padding_mask: Optional[torch.Tensor] = None,
                 memory_key_padding_mask: Optional[torch.Tensor] = None):
-        r"""Pass the inputs (and mask) through the decoder layer in turn.
+        """Pass the inputs (and mask) through the decoder layer in turn.
 
         Args:
             tgt: the sequence to the decoder (required).
