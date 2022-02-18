@@ -5,6 +5,8 @@ import torch.nn.functional as F
 import math
 from typing import Optional
 
+from ripple_linear_py import RippleLinear
+
 class TrigoLinear(nn.Module):
     """
     A simple trigonometric linear layer composed of trigonometric neurons; experimental 
@@ -45,8 +47,9 @@ class TrigoLinear(nn.Module):
             self.in_features, self.out_features, self.bias is not None
         )
 
+
 @torch.jit.script
-def ripple_linear(input:torch.Tensor, out_features:int, weight:torch.Tensor, bias:torch.Tensor):
+def ripple_linear_old(input:torch.Tensor, out_features:int, weight:torch.Tensor, bias:torch.Tensor):
     
     # Register output sizes
     input_size = input.size()
@@ -70,6 +73,37 @@ def ripple_linear(input:torch.Tensor, out_features:int, weight:torch.Tensor, bia
         
     # return unflattened tensor
     return trigo_out.reshape(output_size)
+
+
+@torch.jit.script
+def ripple_linear(input:torch.Tensor, out_features:int, weight:torch.Tensor, bias:torch.Tensor):
+    """
+    Assuming we flatten everything if there are more than 2 input dimensions
+    Input dimension: BS x IN
+    Weight dimension: OUT x IN x 2
+    Bias dimension: OUT x (IN + 1)
+    Output dimension: BS x OUT
+    """
+    
+    # Register output sizes
+    input_size = input.size()
+    output_size = list(input_size)
+    output_size[-1] = out_features
+    
+    # perform operation w1 * sin(w2 * x + b2) + b1
+    input_flattened = input.view(-1, input_size[-1])
+    super_batch_size = input_flattened.size()[0]
+    
+    # Create output block
+    output_sin_mid = torch.sum(weight[:, :, 0].repeat(super_batch_size, 1) *\
+        torch.sin(weight[:, :, 1].repeat(super_batch_size, 1) 
+                  * input_flattened.repeat_interleave(out_features, dim=0) 
+                  + bias[:, 1:].repeat(super_batch_size, 1)), 1).view(super_batch_size, out_features)
+    # output_sin_sum = torch.sum(output_sin_mid, 1).view(super_batch_size, out_features)
+    output_flattened = output_sin_mid + bias[:, 0]
+    
+    # return unflattened tensor
+    return output_flattened.view(output_size)
         
 class TrigoAttention(nn.Module):
     def __init__(self, heads:int, d_model:int, dropout:float = 0.1):
@@ -79,12 +113,12 @@ class TrigoAttention(nn.Module):
         self.d_k = d_model // heads
         self.h = heads
         
-        self.q_linear = TrigoLinear(d_model, d_model)
-        self.v_linear = TrigoLinear(d_model, d_model)
-        self.k_linear = TrigoLinear(d_model, d_model)
+        self.q_linear = RippleLinear(d_model, d_model)
+        self.v_linear = RippleLinear(d_model, d_model)
+        self.k_linear = RippleLinear(d_model, d_model)
         self.dropout = nn.Dropout(dropout)
         self.dropout_p = dropout
-        self.out = TrigoLinear(d_model, d_model)
+        self.out = RippleLinear(d_model, d_model)
     
     def forward(self, q, k, v, mask:Optional[torch.Tensor]=None):
         
@@ -129,12 +163,12 @@ def attention(q, k, v, d_k:int, mask:Optional[torch.Tensor] = None, dropout_p:fl
 
 
 class TrigoFeedForward(nn.Module):
-    def __init__(self, d_model:int, d_ff:int=32, dropout:float = 0.1):
+    def __init__(self, d_model:int, d_ff:int=256, dropout:float = 0.1):
         super().__init__() 
         # We set d_ff as a default to 2048
-        self.linear_1 = TrigoLinear(d_model, d_ff)
+        self.linear_1 = nn.Linear(d_model, d_ff)
         self.dropout = nn.Dropout(dropout)
-        self.linear_2 = TrigoLinear(d_ff, d_model)
+        self.linear_2 = RippleLinear(d_ff, d_model)
     def forward(self, x):
         x = self.dropout(F.relu(self.linear_1(x)))
         x = self.linear_2(x)
@@ -193,8 +227,8 @@ class TrigoDecoderLayer(nn.Module):
     def forward(self, x, e_outputs, src_mask:Optional[torch.Tensor]=None, tgt_mask:Optional[torch.Tensor]=None, 
                 tgt_key_padding_mask:Optional[torch.Tensor]=None, memory_mask:Optional[torch.Tensor]=None, 
                 memory_key_padding_mask:Optional[torch.Tensor]=None):
-        # x2 = self.norm_1(x)
-        # x = x + self.dropout_1(self.attn_1(x2, x2, x2, tgt_mask))
+        x2 = self.norm_1(x)
+        x = x + self.dropout_1(self.attn_1(x2, x2, x2, tgt_mask))
         x2 = self.norm_2(x)
         x = x + self.dropout_2(self.attn_2(x2, e_outputs, e_outputs, src_mask))
         x2 = self.norm_3(x)

@@ -16,7 +16,8 @@ from utils.util import prepare_device, board_to_embedding_coord, move_to_coordin
 from parse_config import ConfigParser
 from model.score_functions import ScoreWinFast
 from data_loaders.game_roll import InferenceMoveSearcher, InferenceBoardNode
-()
+from data_loaders.mcts import MCTS
+
 DIMENSION = 8
 IMAGES = {}
 
@@ -290,7 +291,9 @@ def main(args, config):
     engine.load_state_dict(checkpoint['state_dict'])
     engine = engine.to(device).eval()   
     logger.info('Engine loaded')
-    move_searcher = InferenceMoveSearcher(engine=engine, num_pruned_moves=3)
+    move_searcher = InferenceMoveSearcher(engine=engine, num_pruned_moves=None)
+    args_mcts = {'num_simulations': args.leaves}
+    mcts = MCTS(engine, engine, args_mcts)
 
     # Prepare the screen of the gui
     screen = p.display.set_mode((args.width, args.height))
@@ -312,6 +315,7 @@ def main(args, config):
     undo_flag = False
     score_function = ScoreWinFast(100)
     flip_board = False
+    endgame_flag = False
 
     # game loop
     running = True
@@ -334,32 +338,38 @@ def main(args, config):
                     sq_selected = ()
                     player_clicks = []
                     undo_flag = True
+                    
+                    if endgame_flag:
+                        endgame_flag = False
 
                 # Perform computer move
                 elif keys[p.K_SPACE]:
+                    
+                    if endgame_flag:
+                        continue
+                    
                     print('[INFO] Bot move')
 
                     # Run the network and get a move sample
                     outputs_legal, outputs_class_vec, value = engine([gs.board])
                     legal_move_list, cls_vec, value_full = engine.post_process(outputs_legal, outputs_class_vec, 
-                                                                               value, num_pruned_moves=None)
+                                                                               value, num_pruned_moves=5)
                     legal_move_san = {gs.board.san(legal_move): float(cls_prob) for legal_move, cls_prob
                                       in zip(legal_move_list[0], cls_vec[0])}
                     print(f'[INFO] Probabilities for moves: {legal_move_san}')
                     
-                    # Initiate node for move searcher
-                    move_node = InferenceBoardNode(gs.board, None, score_function, cls_vec[0], value_full[0], device=device)
-                    move_node.legal_move_list = legal_move_list[0]
 
-                    value_np = value_full.detach().numpy()[0]
+                    # Print value
+                    value_np = value_full[0].detach().numpy()
                     print(f'[INFO] Board value: {value_np}')
 
-                    sample = move_searcher(move_node, args.leaves, min_depth=args.min_depth)
-                    move_searcher.reset()
+                    sample_node = mcts.run(gs.board)
+                    sample = sample_node.select_action(temperature=1)
                     # sample = legal_move_list[0][torch.argmax(cls_vec[0]).int()]
 
                     print(f'[INFO] Move in uci: {sample}')
-                    gs.make_move_uci(sample)
+                    gs.make_move_san(sample)
+
                     animate_move(screen, gs, args, gs.board.peek(), clock, flip_board)
                     undo_flag = False
                     
@@ -371,6 +381,9 @@ def main(args, config):
                     promotion_flag = False
                     selected_piece = None  # Selected piece for promotion
                     undo_flag = False
+                    
+                    if endgame_flag:
+                        endgame_flag = False
                     
                 # Flip board
                 elif keys[p.K_f] and keys[p.K_LCTRL]:
@@ -426,10 +439,13 @@ def main(args, config):
         if not undo_flag:
             if gs.is_white_checkmate:
                 draw_text(screen, args, 'WHITE CHECKMATE')
+                endgame_flag = True
             elif gs.is_black_checkmate:
                 draw_text(screen, args, 'BLACK CHECKMATE')
+                endgame_flag = True
             elif gs.is_draw:
                 draw_text(screen, args, 'DRAW')
+                endgame_flag = True
             undo_flag = False
 
         if promotion_flag:
@@ -445,12 +461,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Simple chess board for playing the bot.')
     parser.add_argument('-c', '--config', default='config_s1.json', type=str,
                         help='config file path (default: None)')
-    parser.add_argument('-r', '--resume', default='model_best_init.pth', type=str,
+    parser.add_argument('-r', '--resume', default='test_model.pth', type=str,
                         help='path to latest checkpoint (default: None)')
     parser.add_argument('-d', '--device', default='cuda', type=str,
                         help='indices of GPUs to enable (default: all)')
-    parser.add_argument('-l', '--leaves', default=10, type=int, help='Number of leaf nodes for move search')
-    parser.add_argument('--min_depth', type=int, default=5, help='Minimum computation depth')
+    parser.add_argument('-l', '--leaves', default=100, type=int, help='Number of leaf nodes for move search')
+    parser.add_argument('--min_depth', type=int, default=3, help='Minimum computation depth')
     parser.add_argument('--height', type=int, default=1000, help='Screen height')
     parser.add_argument('--width', type=int, default=1000, help='Screen width')
     parser.add_argument('--max_fps', type=int, default=60, help='Maximum frames-per-second')

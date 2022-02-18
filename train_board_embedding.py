@@ -44,9 +44,9 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training of board embedding script.')
     parser.add_argument('-d', '--device', type=str, default='cuda', help='Device of the net.')
-    parser.add_argument('-e', '--epochs', type=int, default=50, help='Number of training epochs.')
-    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate.')
-    parser.add_argument('--wd', type=float, default=1e-4, help='Weight decay.')
-    parser.add_argument('--em_size', type=int, default=32, help='Size of the embedding layer')
+    parser.add_argument('-e', '--epochs', type=int, default=1000, help='Number of training epochs.')
+    parser.add_argument('--lr', type=float, default=1e-2, help='Learning rate.')
+    parser.add_argument('--wd', type=float, default=1e-8, help='Weight decay.')
+    parser.add_argument('--em_size', type=int, default=8, help='Size of the embedding layer')
     arg = parser.parse_args()
     main(arg)

@@ -7,10 +7,10 @@
         "args": {
             "hidden_dim": 32,
             "num_heads": 8,
-            "num_encoder": 6,
-            "num_decoder": 6,
-            "num_chess_conv_layers": 3,
-            "p_embedding": false,
+            "num_encoder": 4,
+            "num_decoder": 4,
+            "num_chess_conv_layers": 0,
+            "p_embedding": true,
             "dropout": 0.0
         }
     },
@@ -39,31 +39,33 @@
         "type": "AdamW",
         "args":{
             "lr": 1e-1,
-            "weight_decay": 1e-4,
-            "amsgrad": true
+            "weight_decay": 1e-5,
+            "amsgrad": false
         }
     },
     "loss":
     {
         "type": "Criterion",
         "args": {
-            "eos_coef": 0.25,
-            "losses": ["mse_score"],
-            "mse_weight": 0.0
+            "eos_coef": 8e-3,
+            "losses": ["quality_loss", "board_value_loss"]
         }
     },
     "loss_weights":
     {
-        "loss_score": 1
+        "loss_quality": 1,
+        "loss_board_value": 10
     },
     "metrics": [
-        "mse_score_loss"
+        "quality_loss", "board_value_loss"
     ],
     "lr_scheduler": {
-        "type": "StepLR",
+        "type": "OneCycleLR",
         "args": {
-            "step_size": 250,
-            "gamma": 0.1
+            "max_lr": 1e-1,
+            "epochs": 1,
+            "steps_per_epoch": 12375,
+            "three_phase": true
         }
     },
     "trainer": {

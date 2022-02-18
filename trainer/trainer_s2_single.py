@@ -48,16 +48,22 @@ class Trainer(BaseTrainer):
         self.logger.info(Fore.YELLOW + '\n-------------------------<<TRAINING>>-----------------------\n'
                          + Fore.RESET)
 
-        for batch_idx, (board, quality) in enumerate(self.data_loader):
+       # Superconvergence scheduler, must override regular ones
+        if type(self.lr_scheduler) is torch.optim.lr_scheduler.OneCycleLR:
+            lr_sceduler_copy = copy.deepcopy(self.lr_scheduler)
+
+        for batch_idx, (board, quality, value, move_idx) in enumerate(self.data_loader):
 
             if self.device == 'cuda':
                 torch.cuda.empty_cache()
 
             quality = quality.to(self.device)
+            value = value.to(self.device)
+            move_idx = move_idx.to(self.device)
             self.optimizer.zero_grad()
 
-            _, output_quality = self.model.board_forward(board)
-            loss_dict = self.criterion(output_quality, quality)
+            _, output_quality, output_value = self.model(board)
+            loss_dict = self.criterion(output_quality, output_value, quality, value, move_idx)
             loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
                         for loss_type in self.config['loss_weights']])
             loss.backward()
@@ -66,13 +72,19 @@ class Trainer(BaseTrainer):
             self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
             self.train_metrics.update('loss', loss.item())
             for met in self.metric_ftns:
-                self.train_metrics.update(met.__name__, met(output_quality, quality, self.criterion))
+                self.train_metrics.update(met.__name__, met(output_quality, output_value, quality, 
+                                                            value, move_idx, self.criterion))
 
+            print('Something is working')
             if (batch_idx + 1) % 10 == 0:
                 self.logger.debug(Fore.GREEN + f'Train Epoch: {epoch} {self._progress(batch_idx)} '
                                                f'Loss: ' + Fore.CYAN + f'{loss.item():.6f}' + Fore.RESET)
             if self.device == 'cuda':
                 torch.cuda.empty_cache()
+                
+            # Superconvergence scheduler
+            if type(self.lr_scheduler) is torch.optim.lr_scheduler.OneCycleLR:
+                lr_sceduler_copy.step()
 
             if batch_idx == self.len_epoch:
                 break
@@ -104,21 +116,23 @@ class Trainer(BaseTrainer):
             self.logger.info(Fore.YELLOW + '\n-------------------------<<EVALUATION>>-----------------------\n'
                              + Fore.RESET)
 
-            for batch_idx, (board, quality) in enumerate(self.valid_data_loader):
+            for batch_idx, (board, quality, value, move_idx) in enumerate(self.valid_data_loader):
 
                 quality = quality.to(self.device)
+                value = value.to(self.device)
+                move_idx = move_idx.to(self.device)
 
-                output_legal_mat, output_quality = self.model.board_forward(board)
-                loss_dict = self.criterion(output_quality, quality)
+                _, output_quality, output_value = self.model(board)
+                loss_dict = self.criterion(output_quality, output_value, quality, value, move_idx)
                 loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
                             for loss_type in self.config['loss_weights']])
 
                 self.writer.set_step((epoch - 1) * len(self.valid_data_loader) + batch_idx, 'valid')
                 self.valid_metrics.update('loss', loss.item())
                 for met in self.metric_ftns:
-                    self.valid_metrics.update(met.__name__, met(output_quality, quality,
+                    self.valid_metrics.update(met.__name__, met(output_quality, output_value, quality, value, 
+                                                                move_idx,
                                                                 self.criterion))
-                # self.writer.add_image('input', make_grid(board.cpu(), nrow=8, normalize=True))
 
         # add histogram of model parameters to the tensorboard
         for name, p in self.model.named_parameters():

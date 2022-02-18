@@ -28,7 +28,7 @@ class Criterion(torch.nn.Module):
         
         mse_loss_handle = torch.nn.MSELoss()
         
-        loss_mse = mse_loss_handle(pred_value, target_value * 0.01)
+        loss_mse = mse_loss_handle(torch.tanh(pred_value), target_value)
         
         loss = {'loss_board_value': loss_mse}
         return loss
@@ -37,11 +37,11 @@ class Criterion(torch.nn.Module):
                      target_quality_vec: torch.Tensor, target_value: torch.Tensor, matching_idx: torch.Tensor):
         """Score for the move strength. The move strength should be drawn from outside, or another class"""
 
-        weight_mat = torch.zeros(pred_quality_vec.size()).to(device=pred_quality_vec.device) + self.eos_coef
-        for idx, weight_row in enumerate(weight_mat):
-            weight_row[int(matching_idx[idx])] = 1
+        loss_ce = torch.nn.CrossEntropyLoss()
+        move_consider_index = torch.argmax(target_quality_vec, dim=1) == matching_idx
+        loss_ce_gen = loss_ce(pred_quality_vec[move_consider_index], torch.argmax(target_quality_vec, dim=1)[move_consider_index])
 
-        loss_ce_gen = cross_entropy_gen(pred_quality_vec, target_quality_vec, weights=weight_mat)
+        # loss_ce_gen = cross_entropy_gen(pred_quality_vec, target_quality_vec, weights=weight_mat)
 
         loss = {'loss_quality': loss_ce_gen}
         return loss

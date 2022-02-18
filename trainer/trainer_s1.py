@@ -1,5 +1,6 @@
 import copy
 import gc
+import time
 
 import numpy as np
 import torch
@@ -15,11 +16,12 @@ class Trainer(BaseTrainer):
     Trainer class
     """
     def __init__(self, model, criterion, metric_ftns, optimizer, config, device,
-                 data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None, move_limit=125):
+                 data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None, move_limit=125, clip_grad_norm=1e5):
         super().__init__(model, criterion, metric_ftns, optimizer, config)
         self.config = config
         self.device = device
         self.data_loader = data_loader
+        self.clip_grad_norm = clip_grad_norm
         if len_epoch is None:
             # epoch-based training
             self.len_epoch = len(self.data_loader)
@@ -48,6 +50,8 @@ class Trainer(BaseTrainer):
         self.logger.info(Fore.YELLOW + '\n-------------------------<<TRAINING>>-----------------------\n'
                          + Fore.RESET)
         
+        t0 = time.time()
+        
         # Superconvergence scheduler, must override regular ones
         if type(self.lr_scheduler) is torch.optim.lr_scheduler.OneCycleLR:
             lr_sceduler_copy = copy.deepcopy(self.lr_scheduler)
@@ -67,6 +71,7 @@ class Trainer(BaseTrainer):
             loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
                         for loss_type in self.config['loss_weights']])
             loss.backward()
+            torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clip_grad_norm)
             self.optimizer.step()
 
             self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
@@ -89,6 +94,8 @@ class Trainer(BaseTrainer):
                 break
 
         log = self.train_metrics.result()
+
+        print(f'Time for epoch: {time.time() - t0}')
 
         if self.do_validation:
             val_log = self._valid_epoch(epoch)

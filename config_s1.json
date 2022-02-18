@@ -5,8 +5,7 @@
     "arch": {
         "type": "AttChess",
         "args": {
-            "hidden_dim": 32,
-            "num_heads": 8,
+            "num_heads": 4,
             "num_encoder": 4,
             "num_decoder": 4,
             "num_chess_conv_layers": 0,
@@ -17,17 +16,17 @@
     "data_loader": {
         "type": "RuleAttentionChessLoader",
         "args":{
-            "batch_size": 16,
+            "batch_size": 32,
             "shuffle": true,
-            "validation_split": 0.01,
+            "validation_split": 0.0,
             "num_workers": 1
         }
     },
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-1,
-            "weight_decay": 1e-5,
+            "lr": 1e-3,
+            "weight_decay": 1e-6,
             "amsgrad": false
         }
     },
@@ -35,7 +34,7 @@
     {
         "type": "Criterion",
         "args": {
-            "eos_coef": 4e-3,
+            "eos_coef": 1,
             "losses": ["quality_loss", "board_value_loss"]
         }
     },
@@ -50,21 +49,21 @@
     "lr_scheduler": {
         "type": "OneCycleLR",
         "args": {
-            "max_lr": 1e-1,
-            "epochs": 1,
-            "steps_per_epoch": 12375,
+            "max_lr": 1e-3,
+            "total_steps": 31251,
             "three_phase": true
         }
     },
     "trainer": {
-        "epochs": 500,
+        "epochs": 5000,
 
         "save_dir": "saved/",
-        "save_period": 10,
+        "save_period": 1,
         "verbosity": 2,
         
         "monitor": "min val_loss",
         "early_stop": 1e10,
+        "clip_grad_norm": 0.1,
 
         "tensorboard": true
     }

@@ -11,6 +11,36 @@ from collections import OrderedDict
 
 # TODO: 1. convert states to word embeddings.
 
+
+# Convert a chess board to a reduced alpha-zero-like representation. 
+# 6 white, 6 black, 1 turn, 1 white castling, 1 black castling, 1 en-passant flag
+def board_to_bitboard(board: chess.Board):
+    x = torch.zeros((64,16), dtype=torch.float)
+    for pos in range(64):
+        piece = board.piece_type_at(pos)
+        if piece:
+            color = int(bool(board.occupied_co[chess.BLACK] & chess.BB_SQUARES[pos]))
+            col = int(pos % 8)
+            row = int(pos / 8)
+            x[row * 8 + col, piece + color*6 - 1] = 1 
+            
+    # turn
+    if board.turn:
+        x[:, 12] = 1
+            
+    # Check for castling rights
+    if board.has_castling_rights(chess.WHITE):
+        x[:, 13] = 1
+    if board.has_castling_rights(chess.BLACK):
+        x[:, 14] = 1
+        
+    # check for en-passant
+    if board.ep_square:
+        x[board.ep_square, 15] = 1
+        
+    x = x.reshape(8, 8, 16)
+    return x
+
 # Converts a chess board to pytorch tensor
 def board_to_tensor(board):
     # Python chess uses flattened representation of the board

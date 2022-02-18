@@ -125,6 +125,28 @@ class GameState:
             self.is_draw = False
 
         return True
+    
+    def make_move_san(self, san_move):
+        
+        try:
+            self.board.push_san(san_move)
+        except:
+            return False
+
+        # Endgame conditions
+        if self.board.is_checkmate():
+            if not self.board.turn:
+                self.is_white_checkmate = True
+            else:
+                self.is_black_checkmate = True
+        elif self.board.is_stalemate() or self.board.is_repetition() or self.board.is_seventyfive_moves():
+            self.is_draw = True
+        else:
+            self.is_white_checkmate = False
+            self.is_black_checkmate = False
+            self.is_draw = False
+
+        return True
         
     def undo_move(self):
         """Undo move"""

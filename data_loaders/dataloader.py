@@ -8,7 +8,7 @@ import numpy as np
 from model.attchess import AttChess
 
 from utils.util import move_to_tensor, move_to_coordinate, board_to_embedding_coord
-from model.score_functions import ScoreWinFast
+from model.score_functions import ScoreWinFast, ScoreScaling
 from .game_roll import GameRoller
 
 
@@ -185,8 +185,9 @@ class RuleChessDataset(Dataset):
     def __getitem__(self, _):
 
         if self.follow_idx == 0:
-            self.load_game()
-            self.game_length = len(self.board_collection)
+            while self.game_length == 0:
+                self.load_game()
+                self.game_length = len(self.board_collection)
 
         sampled_board = copy.deepcopy(self.board_collection[self.follow_idx])
         sampled_quality_batch = self.move_quality_batch[self.follow_idx, :].clone()
@@ -196,6 +197,7 @@ class RuleChessDataset(Dataset):
         self.follow_idx += 1
         if self.follow_idx == self.game_length:
             self.follow_idx = 0
+            self.game_length = 0
 
         return sampled_board, sampled_quality_batch, sampled_board_value_batch, sampled_move_idx
 
@@ -220,7 +222,7 @@ class RuleChessDataset(Dataset):
         else:
             base_eval = 0
 
-        self.board_collection = [board]
+        self.board_collection = []
         self.move_quality_batch = torch.zeros((0, self.query_word_len))
         self.board_value_batch = torch.zeros(0)
         board_value_list = []
@@ -229,7 +231,7 @@ class RuleChessDataset(Dataset):
         score_factor = base_eval
         
         # Create the score function
-        score_function = ScoreWinFast(moves_to_end=move_counter)
+        score_function = ScoreScaling(moves_to_end=move_counter, score_max=3)
             
 
         for idx, move in enumerate(game.mainline_moves()):
@@ -256,36 +258,38 @@ class RuleChessDataset(Dataset):
             board_value = 0
             matching_idx = torch.nonzero(legal_move_word[:, 1] == move_per_word)
             if score_factor == 1:
-                quality_vector_logit[0, matching_idx] = score_function(idx - opposite_win_add)
+                quality_vector_logit[0, matching_idx] = score_function(idx - opposite_win_add) * 10
             elif score_factor == -1:
-                quality_vector_logit[0, matching_idx] = -score_function(idx - opposite_win_add)
-            move_idx_list.append(matching_idx)
+                quality_vector_logit[0, matching_idx] = -score_function(idx - opposite_win_add) * 10
                 
-            board_value = score_function(idx - opposite_win_add) * base_eval
+            board_value = np.tanh(score_function(idx - opposite_win_add) * base_eval)
 
             quality_vector = quality_vector_logit.softmax(dim=1)
 
             # self.move_collection = torch.cat((self.move_collection, move_tensor.unsqueeze(0)), 0)
-            board_new = copy.deepcopy(board)
-            board_new.push(move)
+            board_recorded = copy.deepcopy(board)
             board.push(move)
-            self.board_collection.append(board_new)
 
-            # concat also legals + quality
-            self.move_quality_batch = torch.cat((self.move_quality_batch, quality_vector), 0)
+            # Collect all the data
+            # if score_factor * base_eval == 1:
             board_value_list.append(board_value)
+            move_idx_list.append(matching_idx)
+            self.board_collection.append(board_recorded)
+            self.move_quality_batch = torch.cat((self.move_quality_batch, quality_vector), 0)
             
+                
             score_factor *= -1
 
         self.board_value_batch = torch.tensor(board_value_list)
         self.selected_move_idx = torch.tensor(move_idx_list)
-        self.board_collection.pop()
+        
+        
 
     def get_item_new(self, _):
         pass
 
     def __len__(self):
-        return int(1e5)
+        return int(1e6)
 
 
 class SelfPlayChessLoader(BaseDataLoader):
@@ -352,7 +356,7 @@ class SelfPlayChessDataset(Dataset):
         if self.follow_idx == self.game_length:
             self.follow_idx = 0
 
-        return sampled_board, sampled_quality_batch
+        return sampled_board, sampled_quality_batch, sampled_board_value_batch, sampled_move_idx
     
     def load_game(self):
         
@@ -378,8 +382,8 @@ class SelfPlayChessDataset(Dataset):
         Sample a move for the main board; we don't want to roll everything from the beginning, 
         else only the initial position will have informative training signals
         """
-        legal_outs, quality_outs = self.good_engine.board_forward([self.init_board])
-        legal_move_list, quality_vec, _ = self.good_engine.post_process(legal_outs, quality_outs)
+        legal_outs, quality_outs, value_raw = self.good_engine([self.init_board])
+        legal_move_list, quality_vec, _ = self.good_engine.post_process(legal_outs, quality_outs, value_raw)
         
         # Otherwise:
         cat = torch.distributions.Categorical(quality_vec[0])

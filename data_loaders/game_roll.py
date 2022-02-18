@@ -52,8 +52,8 @@ class GameRoller:
             new_nodes = []
             
             used_model = self.model_good if board_list[0].turn else self.model_evil  
-            raw_legals, raw_outputs = used_model(board_list)
-            legal_moves, quality_vectors, _ = used_model.post_process(raw_legals, raw_outputs)
+            raw_legals, raw_outputs, raw_value = used_model(board_list)
+            legal_moves, quality_vectors, _ = used_model.post_process(raw_legals, raw_outputs, raw_value)
             
             for current_node, legal_move, quality_vec in zip(current_nodes, legal_moves, quality_vectors):
                 
@@ -137,6 +137,7 @@ class BoardNode:
     def __init__(self, board: chess.Board, parent, score_function, device='cuda', moves_performed=0):
 
         self.device = device
+        self.back_moves = 1
 
         self.score_function = score_function
         self.num_legal_moves = 0
@@ -185,25 +186,45 @@ class BoardNode:
 
         # If there is no parent, we reached the bottom of the barrel
         if self.parent is None:
-            if self.result != 0:
-                self.value_score = -100
-            else:
-                self.value_score = 0
             return
 
-        turn_variable = 1 if self.board.turn is False else -1
         self.parent.score_function = self.score_function
-        current_score = self.score_function(self.moves_performed, self.board)
-        last_move = self.board.peek()
-        self.parent.result = self.result
-        result_marker = self.result if self.result != 0 else 0 # was -turn_variable
-        quality_idx = [idx for idx, move in enumerate(self.parent.legal_move_list) if move == last_move]
-        self.parent.quality_vector_logit[quality_idx[0]] += current_score * result_marker * turn_variable 
+        self.parent.back_moves = self.back_moves + 0.5
         
+        back_move_self_floor = np.floor(self.back_moves)
+        back_move_parent_floor = np.floor(self.parent.back_moves)
+
         # Position value score; take the value and divide by the number of children.
-        self.parent.value_score += current_score * result_marker * turn_variable / len(self.parent.children)
+        if self.board.turn and self.value_score * back_move_self_floor / back_move_parent_floor < self.parent.value_score:
+            self.parent.value_score = self.value_score * back_move_self_floor / back_move_parent_floor
+            
+        elif not self.board.turn and self.value_score * back_move_self_floor / back_move_parent_floor > self.parent.value_score:
+            self.parent.value_score = self.value_score * back_move_self_floor / back_move_parent_floor
         
         self.parent.propagate_score()  # Recursively apply the score propogation
+        
+
+        # # If there is no parent, we reached the bottom of the barrel
+        # if self.parent is None:
+        #     if self.result != 0:
+        #         self.value_score = -100
+        #     else:
+        #         self.value_score = 0
+        #     return
+
+        # turn_variable = 1 if self.board.turn is False else -1
+        # self.parent.score_function = self.score_function
+        # current_score = self.score_function(self.moves_performed, self.board)
+        # last_move = self.board.peek()
+        # self.parent.result = self.result
+        # result_marker = self.result if self.result != 0 else 0 # was -turn_variable
+        # quality_idx = [idx for idx, move in enumerate(self.parent.legal_move_list) if move == last_move]
+        # self.parent.quality_vector_logit[quality_idx[0]] += current_score * result_marker * turn_variable 
+        
+        # # Position value score; take the value and divide by the number of children.
+        # self.parent.value_score += current_score * result_marker * turn_variable / len(self.parent.children)
+        
+        # self.parent.propagate_score()  # Recursively apply the score propogation
 
     def flatten_tree(self, discard_draws=False):
         """Call on tree root to collapse all boards into a single vector, with the corresponding quality vectors. 
@@ -212,9 +233,11 @@ class BoardNode:
         # If there is no child, i.e. the game ended, return an empty stack. Otherwise, start collecting
         
         move_tensor = torch.zeros((0, 256)).to(self.device)
+        value_total = torch.zeros(0).to(self.device)
+        move_list = []
 
         if len(self.children) == 0:
-            return [], move_tensor
+            return [], move_tensor, value_total, move_list
         else:
             # board_list = [child.board for child in self.children if len(child.children) != 0]
             board_list = [self.board]
@@ -222,9 +245,9 @@ class BoardNode:
         turn_variable = 1 if self.board.turn is False else -1
         
         if discard_draws or self.result != 0:
-            quality_vector_append = torch.zeros((1, 256)).to(self.device) - torch.inf
+            quality_vector_append = torch.zeros((1, 256)).to(self.device) - torch.inf # TODO: Continue modifying
             quality_vector_append[0, :self.quality_vector_logit.size()[0]] = self.quality_vector_logit
-            quality_vector_append[0, -1] = self.value_score
+            value_total = torch.cat((value_total, self.value_score), 0)
             move_tensor = torch.cat((move_tensor, quality_vector_append))
         else:
             board_list.pop()
@@ -262,7 +285,6 @@ class InferenceBoardNode(BoardNode):
         self.value_score = value_score
         self.num_of_visits = 0
         self.search_depth = 0
-        self.back_moves = 1
         
         # Need to do this hack because can't check directly if the board is an initial position or not.
         try:
@@ -321,7 +343,7 @@ class InferenceBoardNode(BoardNode):
             move_list = [move for move in self.board.move_stack]
             node_string = "\t" * level + f'Move history: {move_list}, move value: {self.value_score}\n'
         else:
-            node_string = "\t" * level + f'Move played: {self.parent.board.san(self.last_move)}, move value: {self.value_score}\n'
+            node_string = "\t" * level + f'Move played: {self.parent.board.san(self.last_move)}, move value: {self.value_score:.3f}\n'
         for child in self.children:
             node_string += child.__str__(level+1)
         return node_string

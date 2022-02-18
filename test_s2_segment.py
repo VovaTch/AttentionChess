@@ -9,7 +9,8 @@ import copy
 from utils.util import board_to_tensor, legal_move_mask, move_to_tensor, \
     board_to_embedding_coord, move_to_coordinate
 from utils.matcher import match_moves
-from model.attchess import AttChess, BoardEmbTrainNet, MoveEmbTrainNet
+from model.attchess import AttChess
+from data_loaders.mcts import MCTS, Node
 from data_loaders.game_roll import GameRoller, BoardNode, ScoreWinFast, InferenceBoardNode, InferenceMoveSearcher
 from data_loaders.dataloader import RuleAttentionChessLoader, collate_fn, BoardEmbeddingLoader, MoveEmbeddingLoader, SelfPlayChessLoader
 from model import loss
@@ -18,10 +19,7 @@ from model import loss
 def main():
 
     board = chess.Board()
-    board_embed = board_to_embedding_coord(board)
-    loader = RuleAttentionChessLoader(batch_size=32, collate_fn=collate_fn)
-    attchess = AttChess(hidden_dim=32, num_heads=8, num_encoder=6, num_decoder=6, query_word_len=256, 
-                        num_chess_conv_layers=0, p_embedding=False)
+    attchess = AttChess(conv_hidden=32, num_heads=1, feature_multiplier=8, num_encoder=6, num_decoder=4, dropout=0.1, query_word_len=256)
     attchess = attchess.eval().to('cuda')
     
     # Load trained model
@@ -29,15 +27,11 @@ def main():
     attchess.load_state_dict(checkpoint['state_dict'])
     score = ScoreWinFast(moves_to_end=4 // 2)
     
-    # Make a quick checkmate
-    nodes = list()
-    nodes.append(InferenceBoardNode(board, None, score))
-    nodes.append(nodes[-1].perform_move(chess.Move.from_uci('f2f3')))
-    nodes.append(nodes[-1].perform_move(chess.Move.from_uci('e7e5')))
-    nodes.append(nodes[-1].perform_move(chess.Move.from_uci('g2g4')))
-    nodes.append(nodes[-1].perform_move(chess.Move.from_uci('d8h4')))
-    nodes[-1].propagate_score()
-    outputs = nodes[0].flatten_tree()
+    # Run an episode
+    args = {}
+    args['num_simulations'] = 10
+    mcts = MCTS(model_good=attchess, model_evil=attchess, args=args)
+    root = mcts.run(board)
     
     
 

@@ -9,7 +9,7 @@ import data_loaders.dataloader as module_data
 import data_loaders.game_roll as module_roller
 import model.loss as module_loss
 import model.metric as module_metric
-import model.attchess as module_arch
+import model.attchess_old as module_arch
 from parse_config import ConfigParser
 from trainer.trainer_s2_single import Trainer
 from utils.util import prepare_device
