@@ -9,11 +9,12 @@ import data_loaders.dataloader as module_data
 import data_loaders.game_roll as module_roller
 import model.loss as module_loss
 import model.metric as module_metric
-import model.attchess_old as module_arch
+import model.attchess as module_arch
 from parse_config import ConfigParser
 from trainer.trainer_s2_single import Trainer
 from utils.util import prepare_device
 from data_loaders.dataloader import collate_fn
+from data_loaders.mcts import MCTS
 
 
 # fix random seeds for reproducibility
@@ -38,9 +39,7 @@ def main(config):
         model = torch.nn.DataParallel(model, device_ids=device_ids)
 
     # setup data_loader instances
-    game_roller = config.init_obj('game_roller', module_roller, 
-                                  model_good=model, model_evil=model, device=device)
-    data_loader = config.init_obj('data_loader', module_data, collate_fn=collate_fn, game_roller=game_roller)
+    data_loader = config.init_obj('data_loader', module_data, collate_fn=collate_fn)
     valid_data_loader = data_loader.split_validation()
 
     # get function handles of loss and metrics
@@ -61,7 +60,8 @@ def main(config):
                       valid_data_loader=valid_data_loader,
                       lr_scheduler=lr_scheduler)
     
-    data_loader.set_engines(copy.deepcopy(model), copy.deepcopy(model))
+    mcts = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device)
+    data_loader.set_mcts(mcts)
 
     trainer.train()
 
@@ -73,7 +73,7 @@ if __name__ == '__main__':
     args = argparse.ArgumentParser(description='PyTorch Template')
     args.add_argument('-c', '--config', default='config_s2.json', type=str,
                       help='config file path (default: None)')
-    args.add_argument('-r', '--resume', default=None, type=str,
+    args.add_argument('-r', '--resume', default='test_model.pth', type=str,
                       help='path to latest checkpoint (default: None)')
     args.add_argument('-d', '--device', default=None, type=str,
                       help='indices of GPUs to enable (default: all)')

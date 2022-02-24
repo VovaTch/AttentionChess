@@ -39,7 +39,10 @@ class Criterion(torch.nn.Module):
 
         loss_ce = torch.nn.CrossEntropyLoss()
         move_consider_index = torch.argmax(target_quality_vec, dim=1) == matching_idx
-        loss_ce_gen = loss_ce(pred_quality_vec[move_consider_index], torch.argmax(target_quality_vec, dim=1)[move_consider_index])
+        if torch.sum(matching_idx) == -torch.inf:  # TODO: Need to check if it works
+            loss_ce_gen = loss_ce(pred_quality_vec, target_quality_vec)
+        else:
+            loss_ce_gen = loss_ce(pred_quality_vec[move_consider_index], torch.argmax(target_quality_vec, dim=1)[move_consider_index])
 
         # loss_ce_gen = cross_entropy_gen(pred_quality_vec, target_quality_vec, weights=weight_mat)
 

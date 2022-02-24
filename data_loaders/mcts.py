@@ -1,5 +1,6 @@
 from jmespath import search
 import torch
+import torch.nn.functional as F
 import chess
 import copy
 import numpy as np
@@ -12,11 +13,12 @@ from model.attchess import AttChess
 
 class Node:
     
-    def __init__(self, board: chess.Board, prior_prob: float) -> None:
+    def __init__(self, board: chess.Board, prior_prob: float, device='cpu') -> None:
         """
         Initiates the node for the MCTS
         """
         
+        self.device = device
         self.prior_prob = prior_prob
         self.turn = board.turn
         self.half_move = None  # Used to compute the cost function
@@ -37,17 +39,23 @@ class Node:
         """
         Select action according to the visit count distribution and the temperature.
         """
-        visit_counts = np.array([child.visit_count for child in self.children.values()])
+        visit_counts = torch.tensor([child.visit_count for child in self.children.values()]).to(self.device)
         actions = [action for action in self.children.keys()]
         if temperature == 0:
-            action = actions[np.argmax(visit_counts)]
+            action = actions[torch.argmax(visit_counts)]
         elif temperature == float("inf"):
-            action = np.random.choice(actions)
+            
+            logits = torch.tensor([0.0 for _ in actions]).to(self.device)
+            cat_dist = torch.distributions.Categorical(logits=logits)
+            action = actions[cat_dist.sample()]
+                    
         else:
+            
             # See paper appendix Data Generation
             visit_count_distribution = visit_counts ** (1 / temperature)
-            visit_count_distribution = visit_count_distribution / sum(visit_count_distribution)
-            action = np.random.choice(actions, p=visit_count_distribution)
+            visit_count_distribution = visit_count_distribution / torch.sum(visit_count_distribution)
+            cat_dist = torch.distributions.Categorical(probs=visit_count_distribution)
+            action = actions[cat_dist.sample()]
 
         return action
     
@@ -95,7 +103,7 @@ class Node:
             else:
                 new_board.push(move)
                 
-            self.children[self.board.san(move)] = Node(prior_prob=prob, board=new_board)
+            self.children[self.board.san(move)] = Node(prior_prob=prob, board=new_board, device=self.device)
             
     def __repr__(self):
         """
@@ -115,11 +123,12 @@ def ucb_scores(parent, children: dict[str, Node]):
     value_scores = {}
     for move, child in children.items():
         if child.visit_count > 0 and child.value_avg() is not None:
-            value_scores[move] = -np.tanh(child.value_avg()) if child.board.turn else np.tanh(child.value_avg())
+            value_scores[move] = -torch.tanh(torch.tensor(child.value_avg())) \
+                if child.board.turn else torch.tanh(torch.tensor(child.value_avg()))
         else:
             value_scores[move] = 0
     
-    collector_scores = {move: value_scores[move] + prior_scores[move] for move, _ in children.items()}       
+    collector_scores = {move: value_scores[move] + prior_scores[move] for move, _ in children.items()}     
      
     return collector_scores
         
@@ -130,15 +139,19 @@ class MCTS:
     board evaluations to levarage CUDA capabilities.
     """
     
-    def __init__(self, model_good: AttChess, model_evil: AttChess, args):
-        self.model_good = copy.deepcopy(model_good)
-        self.model_evil = copy.deepcopy(model_evil)
-        self.args = args
+    def __init__(self, model_good: AttChess, model_evil: AttChess, num_sims, device='cpu'):
+        self.model_good = model_good
+        self.model_evil = model_evil
+        self.num_sims = num_sims
         self.model_good_flag = True
+        self.device = device
+        
+        self.model_good.to(self.device)
+        self.model_evil.to(self.device)
         
         self.board_list = []
-        self.move_count_vec = torch.zeros((0, 256))
-        self.board_value_vec = torch.zeros(0)
+        self.move_count_vec = torch.zeros((0, 256)).to(self.device)
+        self.board_value_vec = torch.zeros(0).to(self.device)
         
     @torch.no_grad()
     def run_engine(self, boards: list[chess.Board]):
@@ -152,7 +165,7 @@ class MCTS:
         """
         game_end_flag, result = self._is_game_end(board)
         if game_end_flag:
-            return result * 100
+            return result * 3.0
         else:
             return None
     
@@ -168,13 +181,13 @@ class MCTS:
     def run(self, board: chess.Board, verbose=False):
         
         self.model_good_flag = True
-        root = Node(board, 0.0)
+        root = Node(board, 0.0, device=self.device)
         
         # Expand the root node
         legal_move_list, cls_prob_list, _ = self.run_engine([board])
         root.expand(legal_move_list[0], cls_prob_list[0])
         
-        for _ in range(self.args['num_simulations']):
+        for _ in range(self.num_sims):
             node = root
             search_path = [node]
             
@@ -197,7 +210,11 @@ class MCTS:
             else:
                 node.half_move = 1 # Used to compute the value function
                 
-            self.backpropagate(search_path, value)
+            if type(value) == float:
+                self.backpropagate(search_path, value)
+            else:
+                self.backpropagate(search_path, value[0])
+                
             if verbose:
                 for node in search_path:
                     print(node)
@@ -205,14 +222,97 @@ class MCTS:
         return root
     
     
-    def collect_nodes(self, node):
-        pass
+    def collect_nodes_for_training(self, node: Node, min_counts = 5):
+        """Consider all nodes that have X or more visits for future training of self play."""
+        
+        board_collection = [node.board]
+        cls_vec_collection = torch.zeros((1, 256)).to(self.device)
+        board_value_collection = torch.tensor([node.value_avg()]).to(self.device)
+        
+        for idx, (_, child) in enumerate(node.children.items()):
+            
+            cls_vec_collection[0, idx] += child.visit_count
+            if child.visit_count >= min_counts:
+                board_add, cls_vec_add, board_value_add = self.collect_nodes_for_training(child, min_counts=min_counts)
+                
+                # Recursivelly add the nodes with the correct count number
+                board_collection.extend(board_add)
+                cls_vec_collection = torch.cat((cls_vec_collection, cls_vec_add), dim=0)
+                board_value_collection = torch.cat((board_value_collection, board_value_add), dim=0)
+               
+        cls_vec_collection = F.normalize(cls_vec_collection, p=1, dim=1)
+        return board_collection, cls_vec_collection, board_value_collection      
     
     
     def run_multi(self, boards: list[chess.Board], verbose=False):
-        pass # TODO: MAKE THE MULTI-SIM HAPPEN, THIS WILL MAKE EVERYTHING EASIER
-    
         
+        self.model_good_flag = True
+        roots = [Node(board, 0.0, self.device) for board in boards]
+        root_boards = [node.board for node in roots]
+        
+        # Expand every root node
+        legal_move_list, cls_prob_list, _ = self.run_engine(root_boards)
+        for idx, root in enumerate(roots):
+            root.expand(legal_move_list[idx], cls_prob_list[idx])
+            
+        # Run sim for every board
+        for _ in range(self.num_sims):
+            node_edge_list = [None for _ in roots] # Need to do this, otherwise the roots will be overridden by the leaf nodes
+            search_path_list = [[node] for node in roots]
+            
+            # Select a move to make per each node
+            value_list = [None for _ in roots]
+            board_slice_list = []
+            
+            # Expand tree nodes and input values until every value in the list is filled
+            for idx, node in enumerate(roots):
+                while node.expanded():
+                    move, node = node.select_child()
+                    node_edge_list[idx] = node
+                    search_path_list[idx].append(node)
+
+                # necessary to not break the loop when the game ended in one of the branches
+                if len(search_path_list[idx]) >= 2:
+                    
+                    parent = search_path_list[idx][-2]
+                    board = parent.board 
+                    
+                    next_board = copy.deepcopy(board)
+                    next_board.push_san(move)
+                    
+                else:
+                    
+                    next_board = search_path_list[idx][-1].board
+                
+                value = self.get_endgame_value(next_board)
+                value_list[idx] = value
+                
+                if value is None:
+                    board_slice_list.append(next_board)
+                else:
+                    node.half_move = 1 # Used to compute the value function in old version
+                    
+            # Forward all boards through the net
+            legal_move_list, cls_prob_list, value = self.run_engine(board_slice_list)
+            
+            # Expand every node that didn't reach the end
+            node_selection_idx = 0
+            for idx, node in enumerate(node_edge_list):
+                if value_list[idx] is None:
+                    node.expand(legal_move_list[node_selection_idx], cls_prob_list[node_selection_idx])
+                    value_list[idx] = value[node_selection_idx]
+                    node_selection_idx += 1
+                    
+            for idx, search_path in enumerate(search_path_list):
+                self.backpropagate(search_path, value_list[idx])
+                
+                if verbose:
+                    for node in search_path:
+                        print(node)
+                        
+        return roots
+                
+            
 
     def backpropagate(self, search_path, value):
         

@@ -292,8 +292,7 @@ def main(args, config):
     engine = engine.to(device).eval()   
     logger.info('Engine loaded')
     move_searcher = InferenceMoveSearcher(engine=engine, num_pruned_moves=None)
-    args_mcts = {'num_simulations': args.leaves}
-    mcts = MCTS(engine, engine, args_mcts)
+    mcts = MCTS(engine, engine, args.leaves)
 
     # Prepare the screen of the gui
     screen = p.display.set_mode((args.width, args.height))
@@ -365,7 +364,6 @@ def main(args, config):
 
                     sample_node = mcts.run(gs.board)
                     sample = sample_node.select_action(temperature=1)
-                    # sample = legal_move_list[0][torch.argmax(cls_vec[0]).int()]
 
                     print(f'[INFO] Move in uci: {sample}')
                     gs.make_move_san(sample)

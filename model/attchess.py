@@ -170,8 +170,7 @@ class AttChess(BaseModel):
         # Pass through decoder and classify
         queried_moves = self.query_embedding(query_words.long())
         decoder_output = self.chess_decoder_stack(queried_moves, transformer_input.flatten(1, 2))
-        classification_scores = self.move_quality_cls_head(decoder_output)  # idx 255 is saved for resigning or draw
-
+        classification_scores = self.move_quality_cls_head(decoder_output)
         return legal_move_out, classification_scores.squeeze(2), board_value
     
     def post_process(self, legal_move_out, classification_scores, board_value, num_pruned_moves=None):
@@ -226,7 +225,7 @@ class AttChess(BaseModel):
             legal_move_list = legal_move_list_pruned
             cls_score_batch = cls_score_pruned
 
-        return legal_move_list, cls_score_batch, board_value * 100
+        return legal_move_list, cls_score_batch, board_value * 100 / 3
 
 
 class BoardEmbTrainNet(nn.Module):
@@ -236,8 +235,6 @@ class BoardEmbTrainNet(nn.Module):
         super(BoardEmbTrainNet, self).__init__()
 
         self.backbone_embedding = nn.Embedding(36, emb_size)
-        # self.intermid_layer_1 = nn.Linear(emb_size, hidden_size)
-        # self.intermid_layer_2 = nn.Linear(hidden_size, hidden_size)
         self.piece_head = nn.Linear(emb_size, 7)
         self.info_head = nn.Linear(emb_size, 4)
         self.relu = nn.GELU()
@@ -245,10 +242,6 @@ class BoardEmbTrainNet(nn.Module):
     def forward(self, x):
 
         x = self.backbone_embedding(x)
-        # x = self.intermid_layer_1(x)
-        # x = self.relu(x)
-        # x = self.intermid_layer_2(x)
-        # x = self.relu(x)
         x_piece = self.piece_head(x)
         x_info = self.info_head(x)
 
@@ -262,8 +255,6 @@ class MoveEmbTrainNet(nn.Module):
         super(MoveEmbTrainNet, self).__init__()
 
         self.query_embedding = nn.Embedding(4865, emb_size, padding_idx=4864)
-        # self.intermid_layer_1 = nn.Linear(emb_size, hidden_size)
-        # self.intermid_layer_2 = nn.Linear(hidden_size, hidden_size)
         self.coor_head = nn.Linear(emb_size, 4)
         self.promotion_head = nn.Linear(emb_size, 5)
         self.relu = nn.ReLU()
@@ -271,10 +262,6 @@ class MoveEmbTrainNet(nn.Module):
     def forward(self, x):
 
         x = self.query_embedding(x)
-        # x = self.intermid_layer_1(x)
-        # x = self.relu(x)
-        # x = self.intermid_layer_2(x)
-        # x = self.relu(x)
         x_coor = self.coor_head(x)
         x_prom = self.promotion_head(x)
 

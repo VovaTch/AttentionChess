@@ -8,6 +8,7 @@ from colorama import Fore
 
 from base import BaseTrainer
 from utils.util import inf_loop, MetricTracker
+from data_loaders.mcts import MCTS
 
 
 class Trainer(BaseTrainer):
@@ -15,7 +16,7 @@ class Trainer(BaseTrainer):
     Trainer class
     """
     def __init__(self, model, criterion, metric_ftns, optimizer, config, device,
-                 data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None, move_limit=125):
+                 data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None, move_limit=125, clip_grad_norm=1e5):
         super().__init__(model, criterion, metric_ftns, optimizer, config)
         self.config = config
         self.device = device
@@ -32,6 +33,7 @@ class Trainer(BaseTrainer):
         self.lr_scheduler = lr_scheduler
         self.log_step = int(1)
         self.move_limit = move_limit
+        self.clip_grad_norm = clip_grad_norm
 
         self.train_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
         self.valid_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
@@ -67,6 +69,7 @@ class Trainer(BaseTrainer):
             loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
                         for loss_type in self.config['loss_weights']])
             loss.backward()
+            torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clip_grad_norm)
             self.optimizer.step()
 
             self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
@@ -75,7 +78,6 @@ class Trainer(BaseTrainer):
                 self.train_metrics.update(met.__name__, met(output_quality, output_value, quality, 
                                                             value, move_idx, self.criterion))
 
-            print('Something is working')
             if (batch_idx + 1) % 10 == 0:
                 self.logger.debug(Fore.GREEN + f'Train Epoch: {epoch} {self._progress(batch_idx)} '
                                                f'Loss: ' + Fore.CYAN + f'{loss.item():.6f}' + Fore.RESET)
@@ -89,16 +91,20 @@ class Trainer(BaseTrainer):
             if batch_idx == self.len_epoch:
                 break
             
-            self.data_loader.set_engines(copy.deepcopy(self.model), self.data_loader.dataset.evil_engine)
-
+            # Set models in case of full self play; needed because there are 2 MCTS objects
+            self.data_loader.dataset.mcts.good_model = copy.deepcopy(self.model)
+            self.data_loader.dataset.mcts.evil_model = copy.deepcopy(self.model)
+            if self.config['data_loader'] == 'FullSelfPlayLoader':
+                self.data_loader.dataset.mcts_game.good_model = copy.deepcopy(self.model)
+                self.data_loader.dataset.mcts_game.evil_model = copy.deepcopy(self.model)
+            
         log = self.train_metrics.result()
 
         if self.do_validation:
             val_log = self._valid_epoch(epoch)
             log.update(**{'val_'+k : v for k, v in val_log.items()})
 
-
-        if self.lr_scheduler is not None:
+        if self.lr_scheduler is not None and type(self.lr_scheduler) is not torch.optim.lr_scheduler.OneCycleLR:
             self.lr_scheduler.step()
         return log
 

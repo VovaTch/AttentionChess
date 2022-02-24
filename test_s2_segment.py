@@ -12,26 +12,31 @@ from utils.matcher import match_moves
 from model.attchess import AttChess
 from data_loaders.mcts import MCTS, Node
 from data_loaders.game_roll import GameRoller, BoardNode, ScoreWinFast, InferenceBoardNode, InferenceMoveSearcher
-from data_loaders.dataloader import RuleAttentionChessLoader, collate_fn, BoardEmbeddingLoader, MoveEmbeddingLoader, SelfPlayChessLoader
+from data_loaders.dataloader import RuleAttentionChessLoader, collate_fn, BoardEmbeddingLoader, MoveEmbeddingLoader
 from model import loss
 
 
 def main():
+    
+    torch.manual_seed(3050)
 
-    board = chess.Board()
-    attchess = AttChess(conv_hidden=32, num_heads=1, feature_multiplier=8, num_encoder=6, num_decoder=4, dropout=0.1, query_word_len=256)
+    board_1 = chess.Board()
+    board_2 = chess.Board()
+    board_2.push_san('e4')
+    boards = [board_1, board_2]
+    attchess = AttChess(num_heads=1, num_encoder=6, num_decoder=4, dropout=0.1, query_word_len=256)
     attchess = attchess.eval().to('cuda')
     
     # Load trained model
-    checkpoint = torch.load('model_best_init.pth')
-    attchess.load_state_dict(checkpoint['state_dict'])
-    score = ScoreWinFast(moves_to_end=4 // 2)
+    #checkpoint = torch.load('model_best_init.pth')
+    #attchess.load_state_dict(checkpoint['state_dict'])
+    #score = ScoreWinFast(moves_to_end=4 // 2)
     
     # Run an episode
-    args = {}
-    args['num_simulations'] = 10
-    mcts = MCTS(model_good=attchess, model_evil=attchess, args=args)
-    root = mcts.run(board)
+    #args = {}
+    #args['num_simulations'] = 10
+    mcts = MCTS(model_good=attchess, model_evil=attchess, num_sims=10)
+    root = mcts.run_multi(boards)
     
     
 

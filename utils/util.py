@@ -257,3 +257,13 @@ class MetricTracker:
 
     def result(self):
         return dict(self._data.average)
+    
+
+def is_game_end(board: chess.Board):
+    """Checks if the board is an endgame state board."""
+    if board.is_checkmate():
+        return True, -1 * board.turn + 1 * (not board.turn)
+    elif board.is_stalemate() or board.is_repetition() or \
+            board.is_seventyfive_moves() or board.is_insufficient_material():
+        return True, 0
+    return False, 0

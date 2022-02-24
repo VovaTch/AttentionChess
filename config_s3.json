@@ -14,7 +14,7 @@
         }
     },
     "data_loader": {
-        "type": "GuidedSelfPlayLoader",
+        "type": "FullSelfPlayLoader",
         "args":{
             "batch_size": 32,
             "shuffle": true,
@@ -22,7 +22,8 @@
             "num_workers": 0,
             "epochs_per_game": 3,
             "min_counts": 10,
-            "device": "cpu"
+            "device": "cpu",
+            "win_multiplier": 3
         }
     },
     "optimizer": {

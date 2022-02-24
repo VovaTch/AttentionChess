@@ -1,16 +1,17 @@
 import copy
 
 import chess.pgn
+import chess
 import torch
 from torch.utils.data import Dataset
 from base import BaseDataLoader
 import numpy as np
 from model.attchess import AttChess
+from colorama import Fore
 
-from utils.util import move_to_tensor, move_to_coordinate, board_to_embedding_coord
-from model.score_functions import ScoreWinFast, ScoreScaling
-from .game_roll import GameRoller
-
+from utils.util import move_to_coordinate, is_game_end
+from model.score_functions import ScoreScaling
+from .mcts import MCTS
 
 class BoardEmbeddingLoader(BaseDataLoader):
     """
@@ -282,125 +283,330 @@ class RuleChessDataset(Dataset):
 
         self.board_value_batch = torch.tensor(board_value_list)
         self.selected_move_idx = torch.tensor(move_idx_list)
-        
-        
-
-    def get_item_new(self, _):
-        pass
 
     def __len__(self):
         return int(1e6)
 
 
-class SelfPlayChessLoader(BaseDataLoader):
+class GuidedSelfPlayLoader(BaseDataLoader):
     """
-    Data loader for self playing games.
+    Data loader for self playing games with moves from database.
     """
-    def __init__(self, batch_size, game_roller, collate_fn,
+    def __init__(self, batch_size, collate_fn,
                  shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256, 
-                 num_of_branches=10, expansion_constant=0.008, exploration_prob=1.0, max_move_counter=100):
+                 num_of_sims=100, epochs_per_game=1, min_counts=10, data_dir='lichess_data/lichess_db_standard_rated_2016-09.pgn',
+                 device='cpu'):
 
-        self.dataset = SelfPlayChessDataset(query_word_len=query_word_len,  game_roller=game_roller,
-                                            num_of_branches=num_of_branches, expansion_constant=expansion_constant,
-                                            exploration_prob=exploration_prob, max_move_counter=max_move_counter)
+        self.dataset = GuidedSelfPlayDataset(query_word_len=query_word_len, num_of_sims=num_of_sims, data_dir=data_dir,
+                                             epochs_per_game=epochs_per_game, min_counts=min_counts, simultaneous_mcts=batch_size)
+        self.device = device
         super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
         
-    def set_engines(self, good_engine: AttChess, evil_engine: AttChess):
-        self.dataset.good_engine = good_engine
-        self.dataset.evil_engine = evil_engine
-        self.dataset.game_roller.good_engine = good_engine
-        self.dataset.game_roller.evil_engine = evil_engine
-
-
-class SelfPlayChessDataset(Dataset):
-    """
-    Dataset for generated chess games. We have a branching out tree to have more moves towards the endgame.
-    """
-    
-    def __init__(self, game_roller: GameRoller, query_word_len=256, num_of_branches=10, expansion_constant=0.008, 
-                 max_move_counter=100, exploration_prob=1.0):
-        super(SelfPlayChessDataset, self).__init__()
-
+    def set_mcts(self, mcts: MCTS):
         
+        self.dataset.mcts = mcts
+        
+
+
+class GuidedSelfPlayDataset(Dataset):
+    
+    def __init__(self, query_word_len=256, num_of_sims=100, epochs_per_game=1, min_counts=10, 
+                 data_dir='lichess_data/lichess_db_standard_rated_2016-09.pgn', simultaneous_mcts=32):
+        super().__init__()
+        
+        # Load game collection file
+        self.pgn = open(data_dir, encoding="utf-8")
+        
+        # Initiate engines, will later assert that they aren't empty.
+        self.good_engine = None
+        self.evil_engine = None
+        
+        # Initiate variables from outside
         self.query_word_len = query_word_len
+        self.num_of_sims = num_of_sims
+        self.epochs_per_game = epochs_per_game
+        self.min_counts = min_counts
+        self.simultaneous_mcts = simultaneous_mcts
+        
+        # Initiate variables from the inside
         self.follow_idx = 0
         self.game_length = 0
         self.board_collection = None
         self.move_quality_batch = None
-        self.max_move_counter = max_move_counter
-        self.sample_move_counter = 0
-
-        self.alternate_flag = True
-        self.num_of_branches = num_of_branches
-        self.expansion_constant = expansion_constant
-        self.exploration_prob = exploration_prob
+        self.board_value_batch = None
+        self.selected_move_idx = None
         
-        self.init_board = chess.Board()
-        self.game_roller = game_roller
-        self.good_engine = game_roller.model_good
-        self.evil_engine = game_roller.model_evil
-
+        # Initialize MCTS:
+        self.mcts = None
+        
     def __getitem__(self, _):
+        
+        # Assert engines are inputed
+        assert self.mcts is not None, 'Must load an MCTS object into the dataloader'
 
         if self.follow_idx == 0:
-            self.load_game()
-            self.game_length = len(self.board_collection)
-            self.sample_move()
-            self.sample_move_counter += 1
+            while self.game_length == 0:
+                self.load_game()
+                self.game_length = len(self.board_collection)
 
         sampled_board = copy.deepcopy(self.board_collection[self.follow_idx])
         sampled_quality_batch = self.move_quality_batch[self.follow_idx, :].clone()
-        sampled_quality_batch[:-1] = sampled_quality_batch[:-1].softmax(dim=0)
+        sampled_board_value_batch = self.board_value_batch[self.follow_idx].clone()
+        sampled_move_idx = self.selected_move_idx[self.follow_idx].clone()
 
         self.follow_idx += 1
         if self.follow_idx == self.game_length:
             self.follow_idx = 0
+            self.game_length = 0
 
-        return sampled_board, sampled_quality_batch, sampled_board_value_batch, sampled_move_idx
+        return sampled_board, sampled_quality_batch, sampled_board_value_batch, sampled_move_idx 
     
     def load_game(self):
+        """
+        Game loading function;
+        """
+
+        while True:
+            game = chess.pgn.read_game(self.pgn)
+            move_counter = 0
+            for move in enumerate(game.mainline_moves()):
+                move_counter += 1
+            last_move = 1 if move_counter % 2 == 1 else -1
+            
+            if 'Termination' in game.headers and game.headers['Termination'] == 'Normal' and move_counter > 0:
+                break
+
+        board = game.board()
+
+        self.board_collection = []
+        self.move_quality_batch = torch.zeros((0, self.query_word_len)).to(self.mcts.device)
+        self.board_value_batch = torch.zeros(0).to(self.mcts.device)
+        move_idx_list = []
+            
+        board_list_to_mcts = []
+
+        for move_num, move in enumerate(game.mainline_moves()):
+            
+            # Collect all boards until either we get to the batch size or finish the game
+            current_board = copy.deepcopy(board)
+            board_list_to_mcts.append(current_board)
+            
+            # Collect data when the bath is collected
+            if (move_num + 1) % self.simultaneous_mcts == 0 or move_num == move_counter - 1:
+                
+                current_node_list_expanded = self.mcts.run_multi(board_list_to_mcts)
+                
+                # Collect all individual data from the nodes
+                for current_node_expanded in current_node_list_expanded:
+                    
+                    boards_added, cls_vec_added, value_added = self.mcts.collect_nodes_for_training(current_node_expanded, 
+                                                                                            min_counts=self.min_counts)
+                    
+                    
+                    # Collect data for the class variables
+                    self.board_collection.extend(boards_added)
+                    self.move_quality_batch = torch.cat((self.move_quality_batch, cls_vec_added), dim=0).to(self.mcts.device)
+                    self.board_value_batch = torch.cat((self.board_value_batch, value_added), dim=0).to(self.mcts.device)
+                    move_idx_list.extend([-torch.inf for _ in range(len(boards_added))]) # Necessary for all of this to work; TODO: make the loss don't count it
+            
+                # Reset the board list
+                board_list_to_mcts = []
+            
+            # print(f'Pushed move: {board.san(move)}, move number: {move_num // 2  + 1}')
+            board.push(move)
+            
+        self.selected_move_idx = torch.tensor(move_idx_list).to(self.mcts.device)
         
-        if self.alternate_flag:
-            self.game_roller.model_good = self.good_engine
-            self.game_roller.model_evil = self.evil_engine
+        result = game.headers['Result']
+        if result == '1-0':
+            result_string = 'white wins'
+        elif result == '0-1':
+            result_string = 'black wins'
         else:
-            self.game_roller.model_good = self.evil_engine
-            self.game_roller.model_evil = self.good_engine
-            
-        self.game_roller.roll_game(self.init_board, num_of_branches=self.num_of_branches, 
-                                   expansion_constant=self.expansion_constant, exploration_prob=self.exploration_prob)
-        self.board_collection = self.game_roller.board_buffer
-        self.move_quality_batch = self.game_roller.reward_vec_buffer
-        self.game_roller.reset_buffers()
+            result_string = 'draw'
+        print(f'Game result: {result_string}')
         
-        player_name = 'white' if self.alternate_flag else 'black'
-        print(f'The protagonist is {player_name}.')
-        self.alternate_flag = not self.alternate_flag
+        # Repeat the data as long as needed
+        self.board_collection *= self.epochs_per_game
+        self.move_quality_batch = self.move_quality_batch.repeat((self.epochs_per_game, 1))
+        self.board_value_batch = self.board_value_batch.repeat(self.epochs_per_game)
+        self.selected_move_idx = self.selected_move_idx.repeat(self.epochs_per_game)
         
-    def sample_move(self):
-        """
-        Sample a move for the main board; we don't want to roll everything from the beginning, 
-        else only the initial position will have informative training signals
-        """
-        legal_outs, quality_outs, value_raw = self.good_engine([self.init_board])
-        legal_move_list, quality_vec, _ = self.good_engine.post_process(legal_outs, quality_outs, value_raw)
-        
-        # Otherwise:
-        cat = torch.distributions.Categorical(quality_vec[0])
-        sample_idx = cat.sample()
-        self.init_board.push(legal_move_list[0][sample_idx])
-        
-        # if we reached an ending position
-        after_legal_move_list = [move for move in self.init_board.legal_moves]
-        if len(after_legal_move_list) == 0 or self.sample_move_counter > self.max_move_counter: 
-            
-            self.init_board = chess.Board()
-            self.sample_move_counter = 0
-            return
-    
+
     def __len__(self):
         return int(1e5)
 
+
+class FullSelfPlayLoader(BaseDataLoader):
+    """
+    Data loader for self playing games with moves from database.
+    """
+    def __init__(self, batch_size, collate_fn,
+                 shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256, 
+                 num_of_sims=100, epochs_per_game=1, min_counts=10, device='cpu', win_multiplier=1):
+
+        self.dataset = FullSelfPlayDataset(query_word_len=query_word_len, num_of_sims=num_of_sims, 
+                                             epochs_per_game=epochs_per_game, min_counts=min_counts, simultaneous_mcts=batch_size,
+                                             win_multipler=win_multiplier)
+        self.device = device
+        super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
+        
+    def set_mcts_game(self, mcts: MCTS):
+        
+        self.dataset.mcts_game = mcts
+        
+    def set_mcts_learn(self, mcts: MCTS):
+        
+        self.dataset.mcts = mcts
+        
+    def set_mcts(self, mcts: MCTS):
+        
+        self.set_mcts_game(mcts)
+        self.set_mcts_learn(mcts)
+        
+        
+
+
+class FullSelfPlayDataset(Dataset):
+    
+    def __init__(self, query_word_len=256, num_of_sims=100, epochs_per_game=1, min_counts=10, simultaneous_mcts=32, move_limit=300, 
+                 win_multipler=2):
+        super().__init__()
+        
+        # Initiate engines, will later assert that they aren't empty.
+        self.good_engine = None
+        self.evil_engine = None
+        
+        # Initiate variables from outside
+        self.query_word_len = query_word_len
+        self.num_of_sims = num_of_sims
+        self.epochs_per_game = epochs_per_game
+        self.min_counts = min_counts
+        self.simultaneous_mcts = simultaneous_mcts
+        self.move_limit = move_limit
+        self.win_multiplier = win_multipler
+        
+        # Initiate variables from the inside
+        self.follow_idx = 0
+        self.game_length = 0
+        self.board_collection = None
+        self.move_quality_batch = None
+        self.board_value_batch = None
+        self.selected_move_idx = None
+        
+        # Initialize MCTS:
+        self.mcts = None
+        self.mcts_game = None
+        
+    def __getitem__(self, _):
+        
+        # Assert engines are inputed
+        assert self.mcts is not None, 'Must load an MCTS object into the dataloader'
+
+        if self.follow_idx == 0:
+            while self.game_length == 0:
+                self.load_game()
+                self.game_length = len(self.board_collection)
+
+        sampled_board = copy.deepcopy(self.board_collection[self.follow_idx])
+        sampled_quality_batch = self.move_quality_batch[self.follow_idx, :].clone()
+        sampled_board_value_batch = self.board_value_batch[self.follow_idx].clone()
+        sampled_move_idx = self.selected_move_idx[self.follow_idx].clone()
+
+        self.follow_idx += 1
+        if self.follow_idx == self.game_length:
+            self.follow_idx = 0
+            self.game_length = 0
+
+        return sampled_board, sampled_quality_batch, sampled_board_value_batch, sampled_move_idx 
+    
+    def load_game(self):
+        """
+        Game running function;
+        """
+
+        board = chess.Board()
+        game_board_list = []
+        
+        for move_idx in range(self.move_limit):
+            
+            move_counter = move_idx + 1
+            
+            # Append all board states
+            game_board_list.append(copy.deepcopy(board))
+            
+            # Find the best move from a short search
+            sample_node = self.mcts_game.run(board)
+            sample = sample_node.select_action(temperature=0.3)
+            
+            # Append the move to the board
+            board.push_san(sample)
+            print(f'[FullSelfPlay] Pushed move: ' + Fore.YELLOW + f'{sample}' + 
+                  Fore.RESET + f',   \t move: {move_idx // 2 + 1}')
+            
+            # Check for game end
+            ending_flag, result = is_game_end(board)
+            if ending_flag:
+                
+                if result == 1:
+                    result_string = 'white wins'
+                    multiplier = self.win_multiplier
+                elif result == -1:
+                    result_string = 'black wins'
+                    multiplier = self.win_multiplier
+                else:
+                    result_string = 'draw'
+                    multiplier = 1
+                    
+                print(Fore.RED + f'[FullSelfPlay] Game result: {result_string}' + Fore.RESET)
+                
+                break
+            
+
+        self.board_collection = []
+        self.move_quality_batch = torch.zeros((0, self.query_word_len)).to(self.mcts.device)
+        self.board_value_batch = torch.zeros(0).to(self.mcts.device)
+        move_idx_list = []
+            
+        board_list_to_mcts = []
+
+        for board_num, board in enumerate(game_board_list):
+            
+            # Collect all boards until either we get to the batch size or finish the game
+            current_board = copy.deepcopy(board)
+            board_list_to_mcts.append(current_board)
+            
+            # Collect data when the bath is collected
+            if (board_num + 1) % self.simultaneous_mcts == 0 or board_num == move_counter - 1:
+                
+                current_node_list_expanded = self.mcts.run_multi(board_list_to_mcts)
+                
+                # Collect all individual data from the nodes
+                for current_node_expanded in current_node_list_expanded:
+                    
+                    boards_added, cls_vec_added, value_added = self.mcts.collect_nodes_for_training(current_node_expanded, 
+                                                                                            min_counts=self.min_counts)
+                    
+                    
+                    # Collect data for the class variables
+                    self.board_collection.extend(boards_added)
+                    self.move_quality_batch = torch.cat((self.move_quality_batch, cls_vec_added), dim=0).to(self.mcts.device)
+                    self.board_value_batch = torch.cat((self.board_value_batch, value_added), dim=0).to(self.mcts.device)
+                    move_idx_list.extend([-torch.inf for _ in range(len(boards_added))]) # Necessary for all of this to work; TODO: make the loss don't count it
+            
+                # Reset the board list
+                board_list_to_mcts = []
+            
+        self.selected_move_idx = torch.tensor(move_idx_list).to(self.mcts.device)
+        
+        # Repeat the data as long as needed
+        self.board_collection *= self.epochs_per_game * multiplier
+        self.move_quality_batch = self.move_quality_batch.repeat((self.epochs_per_game * multiplier, 1))
+        self.board_value_batch = self.board_value_batch.repeat(self.epochs_per_game * multiplier)
+        self.selected_move_idx = self.selected_move_idx.repeat(self.epochs_per_game * multiplier)
+
+    def __len__(self):
+        return int(1e5)
 
 
 def collate_fn(batch):
@@ -416,5 +622,3 @@ def collate_fn(batch):
         board_values[idx] = batch[idx][2]
         move_idx[idx] = batch[idx][3]
     return chess_boards, quality_vectors, board_values, move_idx
-
-
