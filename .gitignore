@@ -128,6 +128,7 @@ dmypy.json
 # Ignore the chess database
 .lichess_data/
 *.pgn
+*.csv
 
 # Ignore log and saved files
 .saved/

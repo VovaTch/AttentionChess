@@ -20,16 +20,27 @@ class MLP(nn.Module):
     Very simple multi-layer perceptron (also called FFN)
     """
 
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout=0.1):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout=0.1, ripple=False):
         super().__init__()
         self.num_layers = num_layers
         h = [hidden_dim] * (num_layers - 1)
-        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+        self.ripple = ripple
+        if not ripple:
+            self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+        else:
+            self.layers = nn.ModuleList(RippleLinear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+            self.layers[0] = nn.Linear(self.layers[0].input_size, self.layers[0].output_size)
+            self.layers[-1] = nn.Linear(self.layers[-1].input_size, self.layers[-1].output_size)
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x):
-        for i, layer in enumerate(self.layers):
-            x = F.gelu(layer(x)) if i < self.num_layers - 1 else layer(x)
+        for i, layer in enumerate(self.layers):         
+            x = F.gelu(layer(x)) if i < self.num_layers - 1 and not self.ripple else layer(x)
+            # Bypass
+            if i == 0:
+                x_bypass = x
+            elif i == self.num_layers - 2:
+                x += x_bypass
             x = self.dropout(x) if i < self.num_layers - 1 else x
         return x
 
@@ -40,7 +51,7 @@ class AttChess(BaseModel):
     """
 
     def __init__(self, hidden_dim=8, num_heads=8, num_encoder=10, num_decoder=5, dropout=0.1, query_word_len=256,
-                 num_chess_conv_layers=2, p_embedding=True):
+                 num_chess_conv_layers=2, p_embedding=True, ripple_net=False):
         super().__init__()
 
         self.relu = nn.ReLU()
@@ -51,7 +62,7 @@ class AttChess(BaseModel):
         self.query_word_len = query_word_len
 
         # Positional encoding
-        self.positional_embedding = PositionalEncoding2D(self.hidden_dim)
+        self.positional_embedding = PositionalEncoding2D(self.hidden_dim_2)
         self.p_emb_flag = p_embedding
 
         # transformer encoder and decoder
@@ -62,7 +73,7 @@ class AttChess(BaseModel):
         self.chess_decoder = nn.TransformerDecoderLayer(batch_first=True, d_model=self.hidden_dim_2,
                                                         nhead=num_heads, dropout=dropout, norm_first=True)
         self.chess_decoder_stack = nn.TransformerDecoder(self.chess_decoder, num_decoder)
-        self.move_quality_cls_head = MLP(self.hidden_dim_2, self.hidden_dim_2, 1, 5, dropout=dropout)
+        self.move_quality_cls_head = MLP(self.hidden_dim_2, self.hidden_dim_2, 1, 5, dropout=dropout, ripple=ripple_net)
         # self.chess_encoder_value = ChessEncoderLayer(d_model=hidden_dim, heads=num_heads, dropout=dropout)
         # self.chess_encoder_value = TrigoEncoderLayer(batch_first=True, d_model=self.hidden_dim_2,
         #                                                nhead=num_heads, dropout=dropout)
@@ -88,13 +99,33 @@ class AttChess(BaseModel):
         self.conv_end_stack = nn.ModuleList(self.end_conv)
         
         self.bypass_parameter_encoder = nn.Parameter(torch.zeros(1))
+        self.enc_dec_MLP = MLP(self.hidden_dim_2, self.hidden_dim_2 * 8, self.hidden_dim_2, 4, dropout=dropout, ripple=ripple_net)
         # self.bypass_parameter_decoder = nn.Parameter(torch.zeros(1))
         # self.encoder_info_parameter = nn.Parameter(torch.zeros(1))
           
-        self.end_head = nn.Linear(self.hidden_dim_2 * 64, 1)
+        self.end_head = MLP(self.hidden_dim_2 * 256, self.hidden_dim, 1, 3, ripple=ripple_net)
         #self.batch_norm = nn.BatchNorm2d(self.hidden_dim)
         self.dropout = nn.Dropout(p=dropout)
         self.tanh = nn.Tanh()
+
+        # ANOTHER TRY FOR THE CHESS CONV
+        self.conv_backbone_1 = nn.Conv2d(hidden_dim, self.hidden_dim_2 * 2, kernel_size=(15, 15), padding=7)
+        hollow_chess_kernel(self.conv_backbone_1.weight)
+        self.conv_backbone_2 = nn.Conv2d(self.hidden_dim_2 * 2, self.hidden_dim_2 * 4, kernel_size=(3, 3), padding=1)
+        self.conv_backbone_3 = nn.Conv2d(self.hidden_dim_2 * 4, self.hidden_dim_2 * 4, kernel_size=(3, 3), padding=1)
+        
+        self.backbone_conv = nn.Sequential(
+            self.conv_backbone_1,
+            nn.GELU(),
+            nn.LayerNorm([self.hidden_dim_2 * 2, 8, 8]),
+            self.conv_backbone_2,
+            nn.GELU(),
+            nn.LayerNorm([self.hidden_dim_2 * 4, 8, 8]),
+            self.conv_backbone_3,
+            nn.GELU(),
+            nn.LayerNorm([self.hidden_dim_2 * 4, 8, 8])
+        )
+        
 
     def forward(self, boards: list[chess.Board]):
         """
@@ -134,12 +165,13 @@ class AttChess(BaseModel):
         hidden_embedding = self.backbone_embedding(boards)
 
         pose_embedding = self.positional_embedding(hidden_embedding) * self.p_emb_flag
-        transformer_input = torch.cat((hidden_embedding, pose_embedding), -1)
+        conv_input = hidden_embedding + pose_embedding
+        transformer_input = self.backbone_conv(conv_input)
 
         # Transformer encoder + classification head
         boards_flattened = boards.flatten(1, 2)
         # encoder_output_board = transformer_input.flatten(1, 2)
-        encoder_output_board = self.chess_encoder_stack(transformer_input.flatten(1, 2))
+        encoder_output_board = self.chess_encoder_stack(transformer_input.view(batch_size, -1, self.hidden_dim_2))
         # head_eo = self.chess_encoder_value_stack(transformer_input.flatten(1, 2))
         encoder_output = encoder_output_board # + transformer_input.flatten(1, 2)
 
@@ -168,8 +200,10 @@ class AttChess(BaseModel):
                 query_words[batch_idx, :] = batch_legal_moves[:self.query_word_len]  # Cut off at 256. The max number of chess moves is 218.
 
         # Pass through decoder and classify
+        query_input = self.enc_dec_MLP(head_eo)
         queried_moves = self.query_embedding(query_words.long())
-        decoder_output = self.chess_decoder_stack(queried_moves, transformer_input.flatten(1, 2))
+        value_decoder_input = torch.cat((transformer_input.view(batch_size, -1, self.hidden_dim_2), query_input), 1)
+        decoder_output = self.chess_decoder_stack(queried_moves, value_decoder_input)
         classification_scores = self.move_quality_cls_head(decoder_output)
         return legal_move_out, classification_scores.squeeze(2), board_value
     

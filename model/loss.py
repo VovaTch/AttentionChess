@@ -1,9 +1,5 @@
 import torch.nn
 import torch.nn.functional as F
-import numpy as np
-
-from utils.matcher import match_moves
-
 
 def test_loss(pred_moves: torch.Tensor, target_moves: torch.Tensor):
     l1_loss = torch.nn.L1Loss()
@@ -35,7 +31,8 @@ class Criterion(torch.nn.Module):
 
     def quality_loss(self, pred_quality_vec: torch.Tensor, pred_value: torch.Tensor, 
                      target_quality_vec: torch.Tensor, target_value: torch.Tensor, matching_idx: torch.Tensor):
-        """Score for the move strength. The move strength should be drawn from outside, or another class"""
+        """Score for the move strength. The move strength should be drawn from outside, or another class. -inf for considering all the vector, 
+        -1 for 0 error STILL NEED TO IMPLEMENT, NOT SURE IT MATTERS"""
 
         loss_ce = torch.nn.CrossEntropyLoss()
         move_consider_index = torch.argmax(target_quality_vec, dim=1) == matching_idx
@@ -43,6 +40,8 @@ class Criterion(torch.nn.Module):
             loss_ce_gen = loss_ce(pred_quality_vec, target_quality_vec)
         else:
             loss_ce_gen = loss_ce(pred_quality_vec[move_consider_index], torch.argmax(target_quality_vec, dim=1)[move_consider_index])
+            if torch.isnan(loss_ce_gen):
+                loss_ce_gen = 0
 
         # loss_ce_gen = cross_entropy_gen(pred_quality_vec, target_quality_vec, weights=weight_mat)
 

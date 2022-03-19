@@ -1,7 +1,5 @@
 import chess
-from numpy import argmax
 import pygame as p
-from pygame import gfxdraw
 import argparse
 import sys
 import collections
@@ -15,7 +13,6 @@ from gui.gui_engine import GameState
 from utils.util import prepare_device, board_to_embedding_coord, move_to_coordinate
 from parse_config import ConfigParser
 from model.score_functions import ScoreWinFast
-from data_loaders.game_roll import InferenceMoveSearcher, InferenceBoardNode
 from data_loaders.mcts import MCTS
 
 DIMENSION = 8
@@ -291,7 +288,6 @@ def main(args, config):
     engine.load_state_dict(checkpoint['state_dict'])
     engine = engine.to(device).eval()   
     logger.info('Engine loaded')
-    move_searcher = InferenceMoveSearcher(engine=engine, num_pruned_moves=None)
     mcts = MCTS(engine, engine, args.leaves)
 
     # Prepare the screen of the gui
@@ -363,7 +359,7 @@ def main(args, config):
                     print(f'[INFO] Board value: {value_np}')
 
                     sample_node = mcts.run(gs.board)
-                    sample = sample_node.select_action(temperature=1)
+                    sample = sample_node.select_action(temperature=0.0)
 
                     print(f'[INFO] Move in uci: {sample}')
                     gs.make_move_san(sample)
@@ -459,7 +455,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Simple chess board for playing the bot.')
     parser.add_argument('-c', '--config', default='config_s1.json', type=str,
                         help='config file path (default: None)')
-    parser.add_argument('-r', '--resume', default='test_model.pth', type=str,
+    parser.add_argument('-r', '--resume', default='gsp_model.pth', type=str,
                         help='path to latest checkpoint (default: None)')
     parser.add_argument('-d', '--device', default='cuda', type=str,
                         help='indices of GPUs to enable (default: all)')

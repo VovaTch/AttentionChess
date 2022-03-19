@@ -25,7 +25,7 @@ class Node:
         
         self.children = {}
         self.visit_count = 0
-        self.value_candidates = [] 
+        self.value_candidates = {}
         self.value_sum = 0.0
         self.board = board
         
@@ -56,6 +56,8 @@ class Node:
             visit_count_distribution = visit_count_distribution / torch.sum(visit_count_distribution)
             cat_dist = torch.distributions.Categorical(probs=visit_count_distribution)
             action = actions[cat_dist.sample()]
+            
+        # print({act: vis_c for act, vis_c in zip(actions, visit_counts)})
 
         return action
     
@@ -82,13 +84,15 @@ class Node:
         Return the maximum value of the children
         """
         
-        if len(self.value_candidates) == 0:
+        non_none_candidate = {move: value for move, value in self.value_candidates.items() if self.value_candidates[move] is not None}
+        
+        if len(non_none_candidate) == 0:
             return None
 
         if self.turn:
-            return max(self.value_candidates)
+            return non_none_candidate[max(non_none_candidate, key=non_none_candidate.get)]
         else:
-            return min(self.value_candidates)
+            return non_none_candidate[min(non_none_candidate, key=non_none_candidate.get)]
         
     def expand(self, legal_move_list, cls_prob_vec):
         """
@@ -104,6 +108,12 @@ class Node:
                 new_board.push(move)
                 
             self.children[self.board.san(move)] = Node(prior_prob=prob, board=new_board, device=self.device)
+            # if self.board.turn:
+            #     self.value_candidates[self.board.san(move)] = - torch.inf
+            # else:
+            #     self.value_candidates[self.board.san(move)] = torch.inf
+            
+            self.value_candidates[self.board.san(move)] = None
             
     def __repr__(self):
         """
@@ -122,14 +132,16 @@ def ucb_scores(parent, children: dict[str, Node]):
     prior_scores = {move: child.prior_prob * math.sqrt(parent.visit_count) / (child.visit_count + 1) for move, child in children.items()}
     value_scores = {}
     for move, child in children.items():
-        if child.visit_count > 0 and child.value_avg() is not None:
-            value_scores[move] = -torch.tanh(torch.tensor(child.value_avg())) \
-                if child.board.turn else torch.tanh(torch.tensor(child.value_avg()))
+        if child.visit_count > 0 and child.value_max() is not None:
+            value_scores[move] = -torch.tanh(torch.tensor(child.value_max())) \
+                if child.board.turn else torch.tanh(torch.tensor(child.value_max()))
         else:
             value_scores[move] = 0
+            
+        # value_scores[move] *= 10 # THIS IS A WORKAROUND, NEED TO SEE HOW WELL DOES THIS WORK
     
     collector_scores = {move: value_scores[move] + prior_scores[move] for move, _ in children.items()}     
-     
+
     return collector_scores
         
         
@@ -314,12 +326,28 @@ class MCTS:
                 
             
 
-    def backpropagate(self, search_path, value):
+    def backpropagate(self, search_path, value, value_multiplier=0.95):
         
         half_move_accumilated = 1
         
-        for node in reversed(search_path):
+        for node_idx, node in reversed(list(enumerate(search_path))):
             node.value_sum += value
-            node.value_candidates.append(value)
+            
+            if node_idx != 0:
+                prior_board = copy.deepcopy(node.board)
+                prior_board.pop()
+                last_move = prior_board.san(node.board.peek())
+                
+                if search_path[node_idx - 1].value_candidates[last_move] is None:
+                    search_path[node_idx - 1].value_candidates[last_move] = value * value_multiplier
+                
+                elif not node.board.turn and search_path[node_idx - 1].value_candidates[last_move] > value * value_multiplier:   
+                    search_path[node_idx - 1].value_candidates[last_move] = value * value_multiplier
+                    
+                elif node.board.turn and search_path[node_idx - 1].value_candidates[last_move] < value * value_multiplier:    
+                    search_path[node_idx - 1].value_candidates[last_move] = value * value_multiplier
+            
             node.visit_count += 1
-            value *= 0.95
+            value *= value_multiplier
+            
+        # print('\n')

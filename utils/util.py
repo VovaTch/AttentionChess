@@ -9,53 +9,6 @@ from itertools import repeat
 from collections import OrderedDict
 
 
-# TODO: 1. convert states to word embeddings.
-
-
-# Convert a chess board to a reduced alpha-zero-like representation. 
-# 6 white, 6 black, 1 turn, 1 white castling, 1 black castling, 1 en-passant flag
-def board_to_bitboard(board: chess.Board):
-    x = torch.zeros((64,16), dtype=torch.float)
-    for pos in range(64):
-        piece = board.piece_type_at(pos)
-        if piece:
-            color = int(bool(board.occupied_co[chess.BLACK] & chess.BB_SQUARES[pos]))
-            col = int(pos % 8)
-            row = int(pos / 8)
-            x[row * 8 + col, piece + color*6 - 1] = 1 
-            
-    # turn
-    if board.turn:
-        x[:, 12] = 1
-            
-    # Check for castling rights
-    if board.has_castling_rights(chess.WHITE):
-        x[:, 13] = 1
-    if board.has_castling_rights(chess.BLACK):
-        x[:, 14] = 1
-        
-    # check for en-passant
-    if board.ep_square:
-        x[board.ep_square, 15] = 1
-        
-    x = x.reshape(8, 8, 16)
-    return x
-
-# Converts a chess board to pytorch tensor
-def board_to_tensor(board):
-    # Python chess uses flattened representation of the board
-    x = torch.zeros(64, dtype=torch.float)
-    for pos in range(64):
-        piece = board.piece_type_at(pos)
-        if piece:
-            color = int(bool(board.occupied_co[chess.BLACK] & chess.BB_SQUARES[pos]))
-            col = int(pos % 8)
-            row = int(pos / 8)
-            x[row * 8 + col] = -piece if color else piece
-    x = x.reshape(8, 8)
-    return x
-
-
 # Convert board to a grid of embedding coordinates
 def board_to_embedding_coord(board: chess.Board):
 
@@ -87,35 +40,6 @@ def board_to_embedding_coord(board: chess.Board):
     x += (not board.turn) * 18
     x = x.int()
     return x
-
-
-# Convert the move to a format for attchess learning, also used to advance the attchess board format
-def move_to_tensor(move: chess.Move):
-    from_square = move.from_square
-    to_square = move.to_square
-
-    # Handle promotions
-    if move.promotion is not None:
-        promotion_symbol = move.promotion
-        if promotion_symbol is chess.QUEEN:
-            promotion = 5
-        elif promotion_symbol is chess.ROOK:
-            promotion = 4
-        elif promotion_symbol is chess.BISHOP:
-            promotion = 3
-        else:
-            promotion = 2
-    else:
-        promotion = 0
-
-    move_legality_legal = 0
-    move_quality = 0
-    resign_flag = 0  # 1 for resign, -1 for draw
-
-    move_torch = torch.Tensor([from_square/64, to_square/64, promotion, move_legality_legal,
-                               move_quality, resign_flag]).float()
-
-    return move_torch
 
 
 def word_to_move(word):
@@ -181,16 +105,6 @@ def move_to_coordinate(move: chess.Move):
             to_square = 74 + direction
 
     return torch.tensor([int(from_square), int(to_square)])
-
-
-def legal_move_mask(board: chess.Board):
-    """Given a board, produce a masked logits matrix that considers only legal moves"""
-    filter_mask = torch.zeros((64, 64)) - np.inf
-    legal_moves = board.legal_moves
-    for legal_move in legal_moves:
-        from_square = legal_move.from_square
-        to_square = legal_move.to_square
-        filter_mask[from_square, to_square] = 0
 
 
 def ensure_dir(dirname):

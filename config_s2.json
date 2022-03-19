@@ -16,13 +16,14 @@
     "data_loader": {
         "type": "GuidedSelfPlayLoader",
         "args":{
-            "batch_size": 32,
+            "batch_size": 64,
             "shuffle": true,
             "validation_split": 0.00,
             "num_workers": 0,
             "epochs_per_game": 3,
             "min_counts": 10,
-            "device": "cpu"
+            
+            "device": "cuda:0"
         }
     },
     "optimizer": {

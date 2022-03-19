@@ -14,22 +14,18 @@
         }
     },
     "data_loader": {
-        "type": "FullSelfPlayLoader",
+        "type": "PuzzleAttentionChessLoader",
         "args":{
-            "batch_size": 32,
+            "batch_size": 16,
             "shuffle": true,
-            "validation_split": 0.00,
-            "num_workers": 0,
-            "epochs_per_game": 1,
-            "min_counts": 10,
-            "device": "cuda:0",
-            "win_multiplier": 5
+            "validation_split": 0.0,
+            "num_workers": 1
         }
     },
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-3,
+            "lr": 1e-2,
             "weight_decay": 1e-6,
             "amsgrad": false
         }
@@ -45,7 +41,7 @@
     "loss_weights":
     {
         "loss_quality": 1,
-        "loss_board_value": 10
+        "loss_board_value": 1
     },
     "metrics": [
         "quality_loss", "board_value_loss"
@@ -53,20 +49,20 @@
     "lr_scheduler": {
         "type": "OneCycleLR",
         "args": {
-            "max_lr": 1e-3,
-            "epochs": 1,
-            "steps_per_epoch": 3126,
-            "three_phase": true
+            "max_lr": 1e-2,
+            "div_factor": 1000,
+            "total_steps": 112500,
+            "three_phase": false
         }
     },
     "trainer": {
-        "epochs": 500,
+        "epochs": 5000,
 
         "save_dir": "saved/",
         "save_period": 1,
         "verbosity": 2,
         
-        "monitor": "min val_mse_score_loss",
+        "monitor": "min val_loss",
         "early_stop": 1e10,
         "clip_grad_norm": 0.1,
 

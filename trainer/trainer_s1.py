@@ -87,7 +87,7 @@ class Trainer(BaseTrainer):
                 torch.cuda.empty_cache()
                 
             # Superconvergence scheduler
-            if type(self.lr_scheduler) is torch.optim.lr_scheduler.OneCycleLR:
+            if type(self.lr_scheduler) is torch.optim.lr_scheduler.OneCycleLR and epoch % 2 == 0:
                 lr_sceduler_copy.step()
 
             if batch_idx == self.len_epoch:
@@ -96,6 +96,9 @@ class Trainer(BaseTrainer):
         log = self.train_metrics.result()
 
         print(f'Time for epoch: {time.time() - t0}')
+        
+        if self.config['data_loader']['type'] == 'LichessDatabaseChessLoader': # Reset the dataset incase of directly reading from a csv file
+            self.data_loader.dataset.reset_reader()
 
         if self.do_validation:
             val_log = self._valid_epoch(epoch)
