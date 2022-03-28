@@ -57,22 +57,24 @@ class Trainer(BaseTrainer):
         if type(self.lr_scheduler) is torch.optim.lr_scheduler.OneCycleLR:
             lr_sceduler_copy = copy.deepcopy(self.lr_scheduler)
 
-        for batch_idx, (board, quality, value, move_idx) in enumerate(self.data_loader):
+        for batch_idx, (board, quality, value, move_idx, legal_moves) in enumerate(self.data_loader):
 
             if self.device == 'cuda':
                 torch.cuda.empty_cache()
 
             quality = quality.to(self.device)
-            value = value.to(self.device)
+            value = value.to(self.device).float()
             move_idx = move_idx.to(self.device)
+            legal_moves = legal_moves.to(self.device)
             self.optimizer.zero_grad()
 
-            _, output_quality, output_value, output_aux = self.model(board)
+            _, output_quality, output_value, output_aux = self.model.raw_forward(board, legal_moves)
             loss_dict = self.criterion(output_quality, output_value, quality, value, move_idx, output_aux=output_aux)
             loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
                         for loss_type in self.config['loss_weights']])
             loss += sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type[:-2]]
                         for loss_type in loss_dict.keys() if loss_type[:-2] in self.config['loss_weights']])
+            loss = loss.float()
             loss.backward()
             torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clip_grad_norm)
             self.optimizer.step()

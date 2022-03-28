@@ -5,12 +5,13 @@
     "arch": {
         "type": "AttChess",
         "args": {
-            "num_heads": 4,
-            "num_encoder": 4,
-            "num_decoder": 4,
+            "num_heads": 8,
+            "num_encoder": 6,
+            "num_decoder": 6,
             "num_chess_conv_layers": 0,
             "p_embedding": true,
-            "dropout": 0.0
+            "dropout": 0.0,
+            "ripple_net": false
         }
     },
     "data_loader": {

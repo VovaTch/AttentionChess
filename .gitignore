@@ -129,6 +129,7 @@ dmypy.json
 .lichess_data/
 *.pgn
 *.csv
+*.beton
 
 # Ignore log and saved files
 .saved/

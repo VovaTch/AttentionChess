@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import Dataset
 import chess
 import chess.pgn
+import numpy as np
 
 from model.score_functions import ScoreScaling
 from utils.util import move_to_coordinate
@@ -58,9 +59,9 @@ class RuleChessDataset(Dataset):
         board = game.board()
         result = game.headers['Result']
         if result == '1-0':
-            base_eval = self.base_multiplier ** (move_counter // 2)
+            base_eval = 1
         elif result == '0-1':
-            base_eval = -self.base_multiplier ** (move_counter // 2)
+            base_eval = -1
         else:
             base_eval = 0
 
@@ -70,10 +71,10 @@ class RuleChessDataset(Dataset):
         board_value_list = []
         move_idx_list = []
 
-        score_factor = base_eval
+        score_factor = copy.copy(base_eval)
         
         # Create the score function
-        score_function = ScoreScaling(moves_to_end=move_counter, score_max=3)
+        score_function = ScoreScaling(moves_to_end=move_counter, score_max=5)
             
 
         for idx, move in enumerate(game.mainline_moves()):
@@ -96,15 +97,14 @@ class RuleChessDataset(Dataset):
             move_per_word = move_per_coor[0] + 64 * move_per_coor[1]
 
             # Find the correct move
-            opposite_win_add = 1 if base_eval != last_move else 0 # A fix for when the the player resigns right after doing his move
             board_value = 0
             matching_idx = torch.nonzero(legal_move_word[:, 1] == move_per_word)
             if score_factor > 0:
-                quality_vector_logit[0, matching_idx] = base_eval * 10
+                quality_vector_logit[0, matching_idx] = abs(score_function(idx)) * 10
             elif score_factor < 0:
-                quality_vector_logit[0, matching_idx] = -base_eval * 10
+                quality_vector_logit[0, matching_idx] = -abs(score_function(idx)) * 10
                 
-            board_value = base_eval
+            board_value = np.tanh(base_eval * abs(score_function(idx)))
 
             quality_vector = quality_vector_logit.softmax(dim=1)
 

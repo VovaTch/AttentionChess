@@ -37,7 +37,13 @@ class LichessDatabaseChessDataset(Dataset):
         sampled_board_value_batch = float(sampled_row['Board value'])
         sampled_quality_batch = torch.tensor([float(sampled_row[idx]) for idx in list(sampled_row.keys())[2:]])
         
-        sampled_move_idx = -torch.inf
+        # Fix if the size doesn't fit
+        if sampled_quality_batch.size()[0] < self.query_word_len:
+            zeros_tensor = torch.zeros(self.query_word_len)
+            zeros_tensor[:sampled_quality_batch.size()[0]] = sampled_quality_batch
+            sampled_quality_batch = zeros_tensor
+        
+        sampled_move_idx = -1
         
         if torch.sum(sampled_quality_batch) == 0:
             legal_move_counter = [1 for _ in sampled_board.legal_moves]

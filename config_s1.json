@@ -5,30 +5,30 @@
     "arch": {
         "type": "AttChess",
         "args": {
-            "num_heads": 4,
-            "num_encoder": 4,
-            "num_decoder": 4,
+            "num_heads": 8,
+            "num_encoder": 6,
+            "num_decoder": 6,
             "num_chess_conv_layers": 0,
             "p_embedding": true,
             "dropout": 0.0,
-            "ripple_net": true
+            "ripple_net": false
         }
     },
     "data_loader": {
         "type": "RuleAttentionChessLoader",
         "args":{
-            "batch_size": 16,
+            "batch_size": 32,
             "shuffle": true,
             "validation_split": 0.0,
-            "num_workers": 1
+            "num_workers": 8
         }
     },
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-2,
-            "weight_decay": 1e-6,
-            "amsgrad": false
+            "lr": 1e-5,
+            "weight_decay": 1e-8,
+            "amsgrad": true
         }
     },
     "loss":
@@ -36,24 +36,22 @@
         "type": "Criterion",
         "args": {
             "eos_coef": 1,
-            "losses": ["quality_loss", "board_value_loss"]
+            "losses": ["loss_quality", "loss_board_value"]
         }
     },
     "loss_weights":
     {
         "loss_quality": 1,
-        "loss_board_value": 1
+        "loss_board_value": 200
     },
     "metrics": [
         "quality_loss", "board_value_loss"
     ],
     "lr_scheduler": {
-        "type": "OneCycleLR",
+        "type": "StepLR",
         "args": {
-            "max_lr": 1e-2,
-            "div_factor": 1000,
-            "total_steps": 128000,
-            "three_phase": false
+            "gamma": 0.1,
+            "step_size": 100
         }
     },
     "trainer": {

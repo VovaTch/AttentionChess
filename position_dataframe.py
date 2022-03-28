@@ -30,9 +30,9 @@ def load_game(pgn_handle, args):
     board = game.board()
     result = game.headers['Result']
     if result == '1-0':
-        base_eval = args.base_multipler ** (move_counter // 2)
+        base_eval = 1
     elif result == '0-1':
-        base_eval = -args.base_multipler ** (move_counter // 2)
+        base_eval = -1
     else:
         base_eval = 0
 
@@ -43,7 +43,7 @@ def load_game(pgn_handle, args):
     score_factor = copy.copy(base_eval)
     
     # Create the score function
-    score_function = ScoreScaling(moves_to_end=move_counter, score_max=3)
+    score_function = ScoreScaling(moves_to_end=move_counter, score_max=5)
         
 
     for idx, move in enumerate(game.mainline_moves()):
@@ -64,11 +64,10 @@ def load_game(pgn_handle, args):
         move_per_word = move_per_coor[0] + 64 * move_per_coor[1]
 
         # Find the correct move
-        opposite_win_add = 1 if base_eval != last_move else 0 # A fix for when the the player resigns right after doing his move
         board_value = 0
         matching_idx = torch.nonzero(legal_move_word[:, 1] == move_per_word)
             
-        board_value = base_eval
+        board_value = base_eval * np.tanh(score_function(idx))
 
         # self.move_collection = torch.cat((self.move_collection, move_tensor.unsqueeze(0)), 0)
         board_recorded = copy.deepcopy(board)
@@ -154,9 +153,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='A script to save a database as csv file with non-repeating positions.')
     parser.add_argument('-p', '--path', type=str, default = 'lichess_data/lichess_db_standard_rated_2016-09.pgn', 
                         help='The path of the game dataset.')
-    parser.add_argument('-g', '--game_limit', type=int, default=1e6, 
+    parser.add_argument('-g', '--game_limit', type=int, default=2e5, 
                         help='Number of games processed. Infinite - all the games in the file.')
     parser.add_argument('-m', '--base_multiplier', type=float, default=0.95,
                         help='Multiplier for decaying reward for long games')
     args = parser.parse_args()
-    main(args)
+    main(args) 

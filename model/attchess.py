@@ -1,3 +1,4 @@
+from turtle import forward
 import numpy as np
 import torch
 import torch.nn as nn
@@ -9,10 +10,11 @@ from positional_encodings import PositionalEncoding2D
 
 from base.base_model import BaseModel
 from utils.util import word_to_move, board_to_embedding_coord, move_to_coordinate
-from model.chess_conv_attention import hollow_chess_kernel
-from .chess_conv_attention import ChessEncoderLayer
-from ripple_linear_py import RippleLinear
-from .trigo_layers import TrigoEncoderLayer, TrigoDecoderLayer
+# from model.chess_conv_attention import hollow_chess_kernel
+# from .chess_conv_attention import ChessEncoderLayer
+# from ripple_linear_py import RippleLinear, RippleConv2d
+# from .trigo_layers import TrigoEncoderLayer, TrigoDecoderLayer
+from .backbone import ChessFeatureExpander
 
 
 class MLP(nn.Module):
@@ -20,7 +22,7 @@ class MLP(nn.Module):
     Very simple multi-layer perceptron (also called FFN)
     """
 
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout=0.1, ripple=False):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout=0.1, ripple=False, activation='GELU'):
         super().__init__()
         self.num_layers = num_layers
         h = [hidden_dim] * (num_layers - 1)
@@ -32,6 +34,11 @@ class MLP(nn.Module):
             self.layers[0] = nn.Linear(self.layers[0].input_size, self.layers[0].output_size)
             self.layers[-1] = nn.Linear(self.layers[-1].input_size, self.layers[-1].output_size)
         self.dropout = nn.Dropout(p=dropout)
+        
+        if activation == 'GELU':
+            self.activation = nn.GELU()
+        elif activation == 'tanh':
+            self.activation = nn.Tanh()
 
     def forward(self, x):
         for i, layer in enumerate(self.layers):         
@@ -51,15 +58,16 @@ class AttChess(BaseModel):
     """
 
     def __init__(self, hidden_dim=8, num_heads=8, num_encoder=10, num_decoder=5, dropout=0.1, query_word_len=256,
-                 num_chess_conv_layers=2, p_embedding=True, ripple_net=False):
+                 num_chess_conv_layers=2, p_embedding=True, ripple_net=False, aux_outputs=False):
         super().__init__()
 
         self.relu = nn.ReLU()
 
         # Basic constant
         self.hidden_dim = hidden_dim
-        self.hidden_dim_2 = hidden_dim * 2
+        self.hidden_dim_2 = hidden_dim * 4
         self.query_word_len = query_word_len
+        self.aux_outputs_flag = aux_outputs
 
         # Positional encoding
         self.positional_embedding = PositionalEncoding2D(self.hidden_dim_2)
@@ -72,8 +80,8 @@ class AttChess(BaseModel):
         self.chess_encoder_stack = nn.TransformerEncoder(self.chess_encoder, num_encoder)
         self.chess_decoder = nn.TransformerDecoderLayer(batch_first=True, d_model=self.hidden_dim_2,
                                                         nhead=num_heads, dropout=dropout, norm_first=True)
-        self.chess_decoder_stack = nn.TransformerDecoder(self.chess_decoder, num_decoder)
-        self.move_quality_cls_head = MLP(self.hidden_dim_2, self.hidden_dim_2, 1, 5, dropout=dropout, ripple=ripple_net)
+        self.chess_decoder_stack = TransformerAuxDecoder(self.chess_decoder, num_decoder, aux_out_intervals=num_decoder)
+        self.move_quality_cls_head = MLP(self.hidden_dim_2, self.hidden_dim_2, 1, 3, dropout=dropout, ripple=ripple_net)
         # self.chess_encoder_value = ChessEncoderLayer(d_model=hidden_dim, heads=num_heads, dropout=dropout)
         # self.chess_encoder_value = TrigoEncoderLayer(batch_first=True, d_model=self.hidden_dim_2,
         #                                                nhead=num_heads, dropout=dropout)
@@ -99,32 +107,41 @@ class AttChess(BaseModel):
         self.conv_end_stack = nn.ModuleList(self.end_conv)
         
         self.bypass_parameter_encoder = nn.Parameter(torch.zeros(1))
-        self.enc_dec_MLP = MLP(self.hidden_dim_2, self.hidden_dim_2 * 8, self.hidden_dim_2, 4, dropout=dropout, ripple=ripple_net)
+        self.enc_dec_MLP = MLP(self.hidden_dim_2, self.hidden_dim_2 * 8, self.hidden_dim_2, 3, dropout=dropout, ripple=ripple_net)
         # self.bypass_parameter_decoder = nn.Parameter(torch.zeros(1))
         # self.encoder_info_parameter = nn.Parameter(torch.zeros(1))
           
-        self.end_head = MLP(self.hidden_dim_2 * 256, self.hidden_dim, 1, 3, ripple=ripple_net)
+        # self.end_head = MLP(self.hidden_dim_2 * 512, self.hidden_dim, 1, 3, ripple=ripple_net, activation='tanh')
+        self.end_head = EndHead(query_word_len, self.hidden_dim_2)
         #self.batch_norm = nn.BatchNorm2d(self.hidden_dim)
         self.dropout = nn.Dropout(p=dropout)
         self.tanh = nn.Tanh()
 
+        # And another try for a backbone, this is a multi-layer convolution that produces features.
+        # self.backbone = ChessFeatureExpander(hidden_dim) TODO: Conv backbone
+
         # ANOTHER TRY FOR THE CHESS CONV
-        self.conv_backbone_1 = nn.Conv2d(hidden_dim, self.hidden_dim_2 * 2, kernel_size=(15, 15), padding=7)
-        hollow_chess_kernel(self.conv_backbone_1.weight)
-        self.conv_backbone_2 = nn.Conv2d(self.hidden_dim_2 * 2, self.hidden_dim_2 * 4, kernel_size=(3, 3), padding=1)
-        self.conv_backbone_3 = nn.Conv2d(self.hidden_dim_2 * 4, self.hidden_dim_2 * 4, kernel_size=(3, 3), padding=1)
+        # self.conv_backbone_1 = nn.Conv2d(hidden_dim, self.hidden_dim_2 * 2, kernel_size=(15, 15), padding=7)
+        # hollow_chess_kernel(self.conv_backbone_1.weight)
+        # self.conv_backbone_2 = nn.Conv2d(self.hidden_dim_2 * 2, self.hidden_dim_2 * 2, kernel_size=(15, 15), padding=7)
+        # hollow_chess_kernel(self.conv_backbone_1.weight)
+        # self.conv_backbone_3 = nn.Conv2d(self.hidden_dim_2 * 2, self.hidden_dim_2 * 4, kernel_size=(3, 3), padding=1)
+        # self.conv_backbone_4 = nn.Conv2d(self.hidden_dim_2 * 4, self.hidden_dim_2 * 8, kernel_size=(3, 3), padding=1)
         
-        self.backbone_conv = nn.Sequential(
-            self.conv_backbone_1,
-            nn.GELU(),
-            nn.LayerNorm([self.hidden_dim_2 * 2, 8, 8]),
-            self.conv_backbone_2,
-            nn.GELU(),
-            nn.LayerNorm([self.hidden_dim_2 * 4, 8, 8]),
-            self.conv_backbone_3,
-            nn.GELU(),
-            nn.LayerNorm([self.hidden_dim_2 * 4, 8, 8])
-        )
+        # self.backbone_conv = nn.Sequential(
+        #     self.conv_backbone_1,
+        #     nn.GELU(),
+        #     nn.LayerNorm([self.hidden_dim_2 * 2, 8, 8]),
+        #     self.conv_backbone_2,
+        #     nn.GELU(),
+        #     nn.LayerNorm([self.hidden_dim_2 * 2, 8, 8]),
+        #     self.conv_backbone_3,
+        #     nn.GELU(),
+        #     nn.LayerNorm([self.hidden_dim_2 * 4, 8, 8]),
+        #     self.conv_backbone_4,
+        #     nn.GELU(),
+        #     nn.LayerNorm([self.hidden_dim_2 * 8, 8, 8])
+        # )
         
 
     def forward(self, boards: list[chess.Board]):
@@ -162,21 +179,19 @@ class AttChess(BaseModel):
             device = 'cpu'
 
         # Embedding + pos embedding
-        hidden_embedding = self.backbone_embedding(boards)
+        hidden_embedding = self.backbone_embedding(boards.int())
 
         pose_embedding = self.positional_embedding(hidden_embedding) * self.p_emb_flag
-        conv_input = hidden_embedding + pose_embedding
-        transformer_input = self.backbone_conv(conv_input)
+        conv_input = torch.cat((hidden_embedding, pose_embedding, hidden_embedding, pose_embedding), dim=1)
+        # transformer_input = self.backbone(conv_input) # Size BS x HS x W x H TODO: Try again later if necessary
+        transformer_input = conv_input
+        transformer_input = transformer_input.flatten(2, 3).permute((0, 2, 1)) # Size BS x C x HS
 
         # Transformer encoder + classification head
         boards_flattened = boards.flatten(1, 2)
         # encoder_output_board = transformer_input.flatten(1, 2)
-        encoder_output_board = self.chess_encoder_stack(transformer_input.view(batch_size, -1, self.hidden_dim_2))
-        # head_eo = self.chess_encoder_value_stack(transformer_input.flatten(1, 2))
-        encoder_output = encoder_output_board # + transformer_input.flatten(1, 2)
-
-        head_eo = encoder_output.clone()
-        board_value = self.end_head(head_eo.flatten(1, 2)).squeeze(-1)
+        head_eo = self.chess_encoder_stack(transformer_input)
+        # board_value = self.end_head(head_eo).squeeze(-1)
 
         # If the moves are need to be learned
         if legal_move_tensor is None:
@@ -203,9 +218,19 @@ class AttChess(BaseModel):
         query_input = self.enc_dec_MLP(head_eo)
         queried_moves = self.query_embedding(query_words.long())
         value_decoder_input = torch.cat((transformer_input.view(batch_size, -1, self.hidden_dim_2), query_input), 1)
-        decoder_output = self.chess_decoder_stack(queried_moves, value_decoder_input)
+        decoder_output, decoder_output_aux = self.chess_decoder_stack(queried_moves, value_decoder_input)
+        board_value = self.end_head(decoder_output)
         classification_scores = self.move_quality_cls_head(decoder_output)
-        return legal_move_out, classification_scores.squeeze(2), board_value
+        
+        if self.aux_outputs_flag:
+            aux_outputs = {f'loss_quality_{idx}': self.move_quality_cls_head(dec_out_aux).squeeze() 
+                           for idx, dec_out_aux in enumerate(decoder_output_aux)}
+            aux_value = {f'loss_board_value_{idx}': self.end_head(dec_out_aux).squeeze() 
+                         for idx, dec_out_aux in enumerate(decoder_output_aux)}
+            aux_outputs.update(aux_value)
+            return legal_move_out, classification_scores.squeeze(2), board_value, aux_outputs
+        else:
+            return legal_move_out, classification_scores.squeeze(2), board_value
     
     def post_process(self, legal_move_out, classification_scores, board_value, num_pruned_moves=None):
         # TODO: filter low probability moves to prevent the bot from doing nonsense.
@@ -260,6 +285,33 @@ class AttChess(BaseModel):
             cls_score_batch = cls_score_pruned
 
         return legal_move_list, cls_score_batch, board_value * 100 / 3
+
+class EndHead(nn.Module):
+    
+    def __init__(self, input_dim, hidden_dim, ripple=False) -> None:
+        super().__init__()
+        
+        if not ripple:
+            self.lin_1 = nn.Linear(hidden_dim, 1)
+            self.activation = nn.ReLU()
+            self.lin_2 = nn.Linear(input_dim, input_dim)
+            self.lin_3 = nn.Linear(input_dim, 1)
+            
+        else:
+            self.lin_1 = RippleLinear(hidden_dim, 1)
+            self.activation = nn.ReLU()
+            self.lin_2 = RippleLinear(input_dim, input_dim)
+            self.lin_3 = RippleLinear(input_dim, 1)
+            
+    def forward(self, x):
+        x = self.lin_1(x)
+        x = self.activation(x)
+        x = x.squeeze()
+        x = self.lin_2(x)
+        x = self.activation(x)
+        x = self.lin_3(x)
+        return x.squeeze()
+        
 
 
 class BoardEmbTrainNet(nn.Module):

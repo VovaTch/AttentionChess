@@ -36,10 +36,11 @@ class Criterion(torch.nn.Module):
 
         loss_ce = torch.nn.CrossEntropyLoss()
         move_consider_index = torch.argmax(target_quality_vec, dim=1) == matching_idx
-        if torch.sum(matching_idx) == -torch.inf:  # TODO: Need to check if it works
+        if torch.sum(matching_idx) < 0:  # TODO: Need to check if it works
             loss_ce_gen = loss_ce(pred_quality_vec, target_quality_vec)
         else:
             loss_ce_gen = loss_ce(pred_quality_vec[move_consider_index], torch.argmax(target_quality_vec, dim=1)[move_consider_index])
+            #loss_ce_gen = loss_ce(pred_quality_vec[move_consider_index], target_quality_vec[move_consider_index])
             if torch.isnan(loss_ce_gen):
                 loss_ce_gen = 0
 
@@ -50,14 +51,14 @@ class Criterion(torch.nn.Module):
 
     def get_loss(self, loss, pred_quality_vec, pred_value, target_quality_vec, target_value, matching_idx):
         loss_map = {
-            'quality_loss': self.quality_loss,
-            'board_value_loss': self.board_value_loss
+            'loss_quality': self.quality_loss,
+            'loss_board_value': self.board_value_loss
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](pred_quality_vec, pred_value, target_quality_vec, target_value, matching_idx)
 
     def forward(self, pred_quality_vec: torch.Tensor, pred_value: torch.Tensor, 
-                target_quality_vec: torch.Tensor, target_value: torch.Tensor, matching_idx: torch.Tensor):
+                target_quality_vec: torch.Tensor, target_value: torch.Tensor, matching_idx: torch.Tensor, output_aux=None):
 
         self.batch_size = target_quality_vec.size()[0]
         self.query_size = target_quality_vec.size()[1]
@@ -66,6 +67,14 @@ class Criterion(torch.nn.Module):
         for loss in self.losses:
             losses.update(self.get_loss(loss, pred_quality_vec, pred_value, target_quality_vec, 
                                         target_value, matching_idx))
+            
+        if output_aux is not None:
+            loss_aux = {}
+            for key, pred_value in output_aux.items():
+                loss = key[:-2]
+                loss_aux = self.get_loss(loss, pred_value, pred_value, target_quality_vec, 
+                                              target_value, matching_idx)
+                losses[key] = loss_aux[loss]
 
         return losses
 
