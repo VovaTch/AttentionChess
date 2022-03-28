@@ -166,7 +166,7 @@ class MCTS:
         self.board_value_vec = torch.zeros(0).to(self.device)
         
     @torch.no_grad()
-    def run_engine(self, boards: list[chess.Board]):
+    def run_engine(self, boards: list):
         legal_moves_pred, cls_logit_pred, value_raw_pred = self.model_good(boards) if self.model_good_flag else self.model_evil(boards)
         legal_moves_list, cls_prob_list, _ = self.model_good.post_process(legal_moves_pred, cls_logit_pred, value_raw_pred)
         return legal_moves_list, cls_prob_list, value_raw_pred
@@ -256,7 +256,7 @@ class MCTS:
         return board_collection, cls_vec_collection, board_value_collection      
     
     
-    def run_multi(self, boards: list[chess.Board], verbose=False):
+    def run_multi(self, boards: list, verbose=False):
         
         self.model_good_flag = True
         roots = [Node(board, 0.0, self.device) for board in boards]
