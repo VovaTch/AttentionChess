@@ -46,6 +46,7 @@ class Trainer(BaseTrainer):
         :return: A log that contains average loss and metric in this epoch.
         """
         self.model.train()
+        self.model.aux_outputs_flag = True
         self.train_metrics.reset()
         self.logger.info(Fore.YELLOW + '\n-------------------------<<TRAINING>>-----------------------\n'
                          + Fore.RESET)
@@ -64,11 +65,14 @@ class Trainer(BaseTrainer):
             move_idx = move_idx.to(self.device)
             self.optimizer.zero_grad()
 
-            _, output_quality, output_value = self.model(board)
-            loss_dict = self.criterion(output_quality, output_value, quality, value, move_idx)
+            _, output_quality, output_value, output_aux = self.model(board)
+            loss_dict = self.criterion(output_quality, output_value, quality, value, move_idx, output_aux=output_aux)
             loss = sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type]
                         for loss_type in self.config['loss_weights']])
+            loss += sum([loss_dict[loss_type] * self.config['loss_weights'][loss_type[:-2]]
+                        for loss_type in loss_dict.keys() if loss_type[:-2] in self.config['loss_weights']])
             loss.backward()
+            
             torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clip_grad_norm)
             self.optimizer.step()
 
@@ -116,6 +120,7 @@ class Trainer(BaseTrainer):
         :return: A log that contains information about validation
         """
         self.model.eval()
+        self.model.aux_outputs_flag = False
         self.valid_metrics.reset()
         with torch.no_grad():
 

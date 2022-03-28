@@ -222,6 +222,9 @@ class AttChess(BaseModel):
         board_value = self.end_head(decoder_output)
         classification_scores = self.move_quality_cls_head(decoder_output)
         
+        if batch_size == 1:
+            board_value = board_value.unsqueeze(0)
+        
         if self.aux_outputs_flag:
             aux_outputs = {f'loss_quality_{idx}': self.move_quality_cls_head(dec_out_aux).squeeze() 
                            for idx, dec_out_aux in enumerate(decoder_output_aux)}

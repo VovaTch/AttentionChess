@@ -455,7 +455,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Simple chess board for playing the bot.')
     parser.add_argument('-c', '--config', default='config_s1.json', type=str,
                         help='config file path (default: None)')
-    parser.add_argument('-r', '--resume', default='gsp_model.pth', type=str,
+    parser.add_argument('-r', '--resume', default='test_model.pth', type=str,
                         help='path to latest checkpoint (default: None)')
     parser.add_argument('-d', '--device', default='cuda', type=str,
                         help='indices of GPUs to enable (default: all)')

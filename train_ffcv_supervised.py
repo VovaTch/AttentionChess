@@ -13,7 +13,7 @@ from parse_config import ConfigParser
 from trainer.trainer_ffcv_s1 import Trainer
 from utils.util import prepare_device
 from data_loaders.dataloader import collate_fn
-from data_loaders.ffcv_dataloader import get_rule_database_loader
+from data_loaders.ffcv_dataloader import get_ffcv_loader
 
 
 # fix random seeds for reproducibility
@@ -42,7 +42,7 @@ def main(config):
     # setup data_loader instances
     data_loader = config.init_obj('data_loader', module_data, collate_fn=collate_fn)
     loader_args = config['data_loader']['args']
-    data_loader = get_rule_database_loader(batch_size=loader_args['batch_size'], 
+    data_loader = get_ffcv_loader(batch_size=loader_args['batch_size'], 
                                            num_workers=loader_args['num_workers'],
                                            device=device,
                                            shuffle=loader_args['shuffle'])

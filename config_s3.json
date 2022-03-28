@@ -5,7 +5,7 @@
     "arch": {
         "type": "AttChess",
         "args": {
-            "num_heads": 8,
+            "num_heads": 32,
             "num_encoder": 6,
             "num_decoder": 6,
             "num_chess_conv_layers": 0,
@@ -40,7 +40,7 @@
         "type": "Criterion",
         "args": {
             "eos_coef": 1,
-            "losses": ["quality_loss", "board_value_loss"]
+            "losses": ["loss_quality", "loss_board_value"]
         }
     },
     "loss_weights":
@@ -52,12 +52,10 @@
         "quality_loss", "board_value_loss"
     ],
     "lr_scheduler": {
-        "type": "OneCycleLR",
+        "type": "StepLR",
         "args": {
-            "max_lr": 1e-3,
-            "epochs": 1,
-            "steps_per_epoch": 3126,
-            "three_phase": true
+            "gamma": 0.1,
+            "step_size": 100
         }
     },
     "trainer": {

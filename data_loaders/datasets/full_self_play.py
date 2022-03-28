@@ -142,15 +142,11 @@ class FullSelfPlayDataset(Dataset):
             
         self.selected_move_idx = torch.tensor(move_idx_list).to(self.mcts.device)
         
-        print('exploding before repeating')
-        
         # Repeat the data as long as needed
         self.board_collection *= self.epochs_per_game * multiplier
         self.move_quality_batch = self.move_quality_batch.repeat((self.epochs_per_game * multiplier, 1))
         self.board_value_batch = self.board_value_batch.repeat(self.epochs_per_game * multiplier)
         self.selected_move_idx = self.selected_move_idx.repeat(self.epochs_per_game * multiplier)
-        
-        print('exploding after repeating')
 
     def __len__(self):
         return int(1e5)
