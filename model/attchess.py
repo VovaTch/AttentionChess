@@ -144,7 +144,7 @@ class AttChess(BaseModel):
         # )
         
 
-    def forward(self, boards: list[chess.Board]):
+    def forward(self, boards: list):
         """
         Takes a list of boards and converts them to tensors, gets a list of python-chess boards.
         """
