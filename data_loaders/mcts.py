@@ -125,7 +125,7 @@ class Node:
         
         
       
-def ucb_scores(parent, children: dict[str, Node]):
+def ucb_scores(parent, children: dict):
     """
     The score for an action that would transition between the parent and child.
     """
