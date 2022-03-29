@@ -17,12 +17,12 @@
     "data_loader": {
         "type": "FullSelfPlayLoader",
         "args":{
-            "batch_size": 32,
+            "batch_size": 16,
             "shuffle": true,
             "validation_split": 0.00,
             "num_workers": 0,
             "epochs_per_game": 1,
-            "min_counts": 10,
+            "min_counts": 20,
             "device": "cuda:0",
             "win_multiplier": 5
         }

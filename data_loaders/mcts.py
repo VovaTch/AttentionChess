@@ -177,7 +177,7 @@ class MCTS:
         """
         game_end_flag, result = self._is_game_end(board)
         if game_end_flag:
-            return result * 3.0
+            return result * 5.0
         else:
             return None
     
@@ -305,7 +305,8 @@ class MCTS:
                     node.half_move = 1 # Used to compute the value function in old version
                     
             # Forward all boards through the net
-            legal_move_list, cls_prob_list, value = self.run_engine(board_slice_list)
+            if len(board_slice_list) > 0:
+                legal_move_list, cls_prob_list, value = self.run_engine(board_slice_list)
             
             # Expand every node that didn't reach the end
             node_selection_idx = 0
