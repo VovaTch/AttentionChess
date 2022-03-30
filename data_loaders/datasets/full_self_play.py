@@ -84,6 +84,7 @@ class FullSelfPlayDataset(Dataset):
             board.push_san(sample)
             print(f'[FullSelfPlay] Pushed move: ' + Fore.YELLOW + f'{sample}' + 
                   Fore.RESET + f',   \t move: {move_idx // 2 + 1}')
+            print(board)
             
             # Check for game end
             ending_flag, result = is_game_end(board)
