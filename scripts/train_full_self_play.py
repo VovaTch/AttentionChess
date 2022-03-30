@@ -6,7 +6,6 @@ import torch
 import numpy as np
 
 import data_loaders.dataloader as module_data
-import data_loaders.game_roll as module_roller
 import model.loss as module_loss
 import model.metric as module_metric
 import model.attchess as module_arch
@@ -34,7 +33,6 @@ def main(config):
 
     # prepare for (multi-device) GPU training
     device, device_ids = prepare_device(config['n_gpu'])
-    print(f'Device: {device}')
     model = model.to(device)
     if len(device_ids) > 1:
         model = torch.nn.DataParallel(model, device_ids=device_ids)
@@ -61,8 +59,10 @@ def main(config):
                       valid_data_loader=valid_data_loader,
                       lr_scheduler=lr_scheduler)
     
-    mcts = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device)
-    data_loader.set_mcts(mcts)
+    mcts_learn = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device)
+    mcts_game = MCTS(copy.deepcopy(model), copy.deepcopy(model), 30, device=device)
+    data_loader.set_mcts_learn(mcts_learn)
+    data_loader.set_mcts_game(mcts_game)
 
     trainer.train()
 
@@ -72,7 +72,7 @@ if __name__ == '__main__':
     torch.multiprocessing.set_start_method('spawn')  # Necessary for this to work; maybe it will run out of memory like that
 
     args = argparse.ArgumentParser(description='PyTorch Template')
-    args.add_argument('-c', '--config', default='config_s2.json', type=str,
+    args.add_argument('-c', '--config', default='config/config_s3.json', type=str,
                       help='config file path (default: None)')
     args.add_argument('-r', '--resume', default='test_model.pth', type=str,
                       help='path to latest checkpoint (default: None)')

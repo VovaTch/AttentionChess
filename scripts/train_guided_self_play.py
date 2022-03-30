@@ -1,6 +1,6 @@
 import argparse
 import collections
-from unittest import loader
+import copy
 
 import torch
 import numpy as np
@@ -9,11 +9,11 @@ import data_loaders.dataloader as module_data
 import model.loss as module_loss
 import model.metric as module_metric
 import model.attchess as module_arch
-from parse_config import ConfigParser
-from trainer.trainer_ffcv_s1 import Trainer
+from .parse_config import ConfigParser
+from trainer.trainer_s2_single import Trainer
 from utils.util import prepare_device
 from data_loaders.dataloader import collate_fn
-from data_loaders.ffcv_dataloader import get_ffcv_loader
+from data_loaders.mcts import MCTS
 
 
 # fix random seeds for reproducibility
@@ -29,24 +29,18 @@ def main(config):
 
     # build model architecture, then print to console
     model = config.init_obj('arch', module_arch)
-    # model = torch.jit.script(model)
     logger.info(model)
 
     # prepare for (multi-device) GPU training
     device, device_ids = prepare_device(config['n_gpu'])
+    print(f'Device: {device}')
     model = model.to(device)
     if len(device_ids) > 1:
         model = torch.nn.DataParallel(model, device_ids=device_ids)
-        
 
     # setup data_loader instances
     data_loader = config.init_obj('data_loader', module_data, collate_fn=collate_fn)
-    loader_args = config['data_loader']['args']
-    data_loader = get_ffcv_loader(batch_size=loader_args['batch_size'], 
-                                           num_workers=loader_args['num_workers'],
-                                           device=device,
-                                           shuffle=loader_args['shuffle'])
-    valid_data_loader = None
+    valid_data_loader = data_loader.split_validation()
 
     # get function handles of loss and metrics
     criterion = config.init_obj('loss', module_loss)
@@ -65,16 +59,21 @@ def main(config):
                       data_loader=data_loader,
                       valid_data_loader=valid_data_loader,
                       lr_scheduler=lr_scheduler)
+    
+    mcts = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device)
+    data_loader.set_mcts(mcts)
 
     trainer.train()
 
 
 if __name__ == '__main__':
 
+    torch.multiprocessing.set_start_method('spawn')  # Necessary for this to work; maybe it will run out of memory like that
+
     args = argparse.ArgumentParser(description='PyTorch Template')
-    args.add_argument('-c', '--config', default='config_s1.json', type=str,
+    args.add_argument('-c', '--config', default='config/config_s2.json', type=str,
                       help='config file path (default: None)')
-    args.add_argument('-r', '--resume', default=None, type=str,
+    args.add_argument('-r', '--resume', default='test_model.pth', type=str,
                       help='path to latest checkpoint (default: None)')
     args.add_argument('-d', '--device', default=None, type=str,
                       help='indices of GPUs to enable (default: all)')
