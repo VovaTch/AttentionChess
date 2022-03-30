@@ -78,7 +78,7 @@ class FullSelfPlayDataset(Dataset):
             
             # Find the best move from a short search
             sample_node = self.mcts_game.run(board)
-            sample = sample_node.select_action(temperature=0.3)
+            sample = sample_node.select_action(temperature=1.0)
             
             # Append the move to the board
             board.push_san(sample)
@@ -149,4 +149,4 @@ class FullSelfPlayDataset(Dataset):
         self.selected_move_idx = self.selected_move_idx.repeat(self.epochs_per_game * multiplier)
 
     def __len__(self):
-        return int(1e5)
+        return int(2e4)
