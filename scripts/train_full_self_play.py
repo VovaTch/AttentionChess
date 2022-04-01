@@ -11,7 +11,7 @@ import model.metric as module_metric
 import model.attchess as module_arch
 from parse_config import ConfigParser
 from trainer.trainer_s2_single import Trainer
-from utils.util import prepare_device
+from utils import prepare_device
 from data_loaders.dataloader import collate_fn
 from data_loaders.mcts import MCTS
 
@@ -60,7 +60,7 @@ def main(config):
                       lr_scheduler=lr_scheduler)
     
     mcts_learn = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device)
-    mcts_game = MCTS(copy.deepcopy(model), copy.deepcopy(model), 30, device=device)
+    mcts_game = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device)
     data_loader.set_mcts_learn(mcts_learn)
     data_loader.set_mcts_game(mcts_game)
 
@@ -74,7 +74,7 @@ if __name__ == '__main__':
     args = argparse.ArgumentParser(description='PyTorch Template')
     args.add_argument('-c', '--config', default='config/config_s3.json', type=str,
                       help='config file path (default: None)')
-    args.add_argument('-r', '--resume', default='test_model.pth', type=str,
+    args.add_argument('-r', '--resume', default=None, type=str,
                       help='path to latest checkpoint (default: None)')
     args.add_argument('-d', '--device', default=None, type=str,
                       help='indices of GPUs to enable (default: all)')

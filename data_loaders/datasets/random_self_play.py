@@ -3,14 +3,13 @@ import copy
 import chess
 import torch
 from torch.utils.data import Dataset
-from colorama import Fore
 
-from utils.util import is_game_end
+from utils import generate_position
 
-class FullSelfPlayDataset(Dataset):
+class RandomSelfPlayDataset(Dataset):
     
-    def __init__(self, query_word_len=256, num_of_sims=100, epochs_per_game=1, min_counts=10, simultaneous_mcts=32, move_limit=300, 
-                 win_multipler=2):
+    def __init__(self, query_word_len=256, num_of_sims=100, epochs_per_game=1, min_counts=10, simultaneous_mcts=32,
+                 boards_per_sample=128):
         super().__init__()
         
         # Initiate engines, will later assert that they aren't empty.
@@ -23,8 +22,7 @@ class FullSelfPlayDataset(Dataset):
         self.epochs_per_game = epochs_per_game
         self.min_counts = min_counts
         self.simultaneous_mcts = simultaneous_mcts
-        self.move_limit = move_limit
-        self.win_multiplier = win_multipler
+        self.boards_per_sample = boards_per_sample
         
         # Initiate variables from the inside
         self.follow_idx = 0
@@ -36,7 +34,6 @@ class FullSelfPlayDataset(Dataset):
         
         # Initialize MCTS:
         self.mcts = None
-        self.mcts_game = None
         
     def __getitem__(self, _):
         
@@ -69,40 +66,12 @@ class FullSelfPlayDataset(Dataset):
         multiplier = 1
         game_board_list = []
         
-        for move_idx in range(self.move_limit):
+        for _ in range(self.boards_per_sample):
             
-            move_counter = move_idx + 1
+            random_fen = generate_position()
+            game_board_list.append(chess.Board(fen=random_fen))
             
-            # Append all board states
-            game_board_list.append(copy.deepcopy(board))
-            
-            # Find the best move from a short search
-            sample_node = self.mcts_game.run(board)
-            sample = sample_node.select_action(temperature=0.3)
-            
-            # Append the move to the board
-            board.push_san(sample)
-            print(f'[FullSelfPlay] Pushed move: ' + Fore.YELLOW + f'{sample}' + 
-                  Fore.RESET + f',   \t move: {move_idx // 2 + 1}')
-            print(board)
-            
-            # Check for game end
-            ending_flag, result = is_game_end(board)
-            if ending_flag:
-                
-                if result == 1:
-                    result_string = 'white wins'
-                    multiplier = self.win_multiplier
-                elif result == -1:
-                    result_string = 'black wins'
-                    multiplier = self.win_multiplier
-                else:
-                    result_string = 'draw'
-                    multiplier = 1
-                    
-                print(Fore.RED + f'[FullSelfPlay] Game result: {result_string}' + Fore.RESET)
-                
-                break
+            print(f'Game fen: {random_fen}')
 
         self.board_collection = []
         self.move_quality_batch = torch.zeros((0, self.query_word_len)).to(self.mcts.device)
@@ -120,7 +89,7 @@ class FullSelfPlayDataset(Dataset):
             board_list_to_mcts.append(current_board)
             
             # Collect data when the bath is collected
-            if (board_num + 1) % self.simultaneous_mcts == 0 or board_num == move_counter - 1:
+            if (board_num + 1) % self.simultaneous_mcts == 0 or board_num == self.boards_per_sample - 1:
                 
                 len(board_list_to_mcts)
                 current_node_list_expanded = self.mcts.run_multi(board_list_to_mcts)
@@ -150,4 +119,4 @@ class FullSelfPlayDataset(Dataset):
         self.selected_move_idx = self.selected_move_idx.repeat(self.epochs_per_game * multiplier)
 
     def __len__(self):
-        return int(2e4)
+        return int(1e5)

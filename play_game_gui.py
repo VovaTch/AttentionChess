@@ -11,7 +11,7 @@ import torch
 import model.attchess as module_arch
 from gui.gui_engine import GameState
 from utils.util import prepare_device, board_to_embedding_coord, move_to_coordinate
-from scripts.parse_config import ConfigParser
+from parse_config import ConfigParser
 from model.score_functions import ScoreWinFast
 from data_loaders.mcts import MCTS
 

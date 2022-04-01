@@ -7,3 +7,4 @@ from .lichess_database import LichessDatabaseChessDataset
 from .move_embedding import MoveEmbeddingDataset
 from .puzzle_chess import PuzzleChessDataset
 from .rule_chess import RuleChessDataset
+from .random_self_play import RandomSelfPlayDataset

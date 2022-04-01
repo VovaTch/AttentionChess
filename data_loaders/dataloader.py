@@ -3,7 +3,7 @@ from base import BaseDataLoader
 
 from .mcts import MCTS
 from .datasets import BoardEmbeddingDataset, MoveEmbeddingDataset, RuleChessDataset,\
-    GuidedSelfPlayDataset, FullSelfPlayDataset, LichessDatabaseChessDataset
+    GuidedSelfPlayDataset, FullSelfPlayDataset, LichessDatabaseChessDataset, RandomSelfPlayDataset
 
 class BoardEmbeddingLoader(BaseDataLoader):
     """
@@ -96,6 +96,25 @@ class FullSelfPlayLoader(BaseDataLoader):
         self.set_mcts_learn(mcts)
 
 
+class RandomSelfPlayLoader(BaseDataLoader):
+    """
+    Data loader to expand tree from random chess positions.
+    """
+    def __init__(self, batch_size, collate_fn,
+                 shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256, 
+                 num_of_sims=100, epochs_per_game=1, min_counts=10, device='cpu', boards_per_sample=128):
+
+        self.dataset = RandomSelfPlayDataset(query_word_len=query_word_len, num_of_sims=num_of_sims, 
+                                             epochs_per_game=epochs_per_game, min_counts=min_counts, simultaneous_mcts=batch_size,
+                                             boards_per_sample=boards_per_sample)
+        self.device = device
+        super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
+        
+    def set_mcts(self, mcts: MCTS):
+        
+        self.dataset.mcts = mcts
+
+
 class LichessDatabaseChessLoader(BaseDataLoader):
     """
     MNIST data loading demo using BaseDataLoader
@@ -106,6 +125,9 @@ class LichessDatabaseChessLoader(BaseDataLoader):
         self.dataset_path = data_dir
         self.dataset = LichessDatabaseChessDataset(data_dir, query_word_len=query_word_len)
         super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
+
+
+
 
 
 def collate_fn(batch):

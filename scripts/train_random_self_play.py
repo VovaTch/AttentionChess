@@ -1,17 +1,21 @@
 import argparse
 import collections
+import copy
 
 import torch
 import numpy as np
+from clearml import Task
+from clearml.backend_api import Session
 
 import data_loaders.dataloader as module_data
 import model.loss as module_loss
 import model.metric as module_metric
 import model.attchess as module_arch
-from ..parse_config import ConfigParser
-from trainer.trainer_s1 import Trainer
+from parse_config import ConfigParser
+from trainer.trainer_s2_single import Trainer
 from utils import prepare_device
 from data_loaders.dataloader import collate_fn
+from data_loaders.mcts import MCTS
 
 
 # fix random seeds for reproducibility
@@ -22,12 +26,20 @@ torch.backends.cudnn.benchmark = False
 np.random.seed(SEED)
 
 
-def main(config):
+def main(config, args):
+    
+    if args.ml:
+        """Handle ClearML integration"""
+        
+        task = Task.init(project_name=config['name'], task_name=config['task_name'])
+        Session._session_initial_timeout = (15., 30.)
+        
+        config_dict = task.current_task().connect(config)
+    
     logger = config.get_logger('train')
 
     # build model architecture, then print to console
     model = config.init_obj('arch', module_arch)
-    # model = torch.jit.script(model)
     logger.info(model)
 
     # prepare for (multi-device) GPU training
@@ -35,7 +47,6 @@ def main(config):
     model = model.to(device)
     if len(device_ids) > 1:
         model = torch.nn.DataParallel(model, device_ids=device_ids)
-        
 
     # setup data_loader instances
     data_loader = config.init_obj('data_loader', module_data, collate_fn=collate_fn)
@@ -58,19 +69,26 @@ def main(config):
                       data_loader=data_loader,
                       valid_data_loader=valid_data_loader,
                       lr_scheduler=lr_scheduler)
+    
+    mcts_engine = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device)
+    data_loader.set_mcts(mcts_engine)
 
     trainer.train()
 
 
 if __name__ == '__main__':
 
-    args = argparse.ArgumentParser(description='PyTorch Template')
-    args.add_argument('-c', '--config', default='config/config_s1_puzzle.json', type=str,
+    torch.multiprocessing.set_start_method('spawn')  # Necessary for this to work; maybe it will run out of memory like that
+
+    parser = argparse.ArgumentParser(description='PyTorch Template')
+    parser.add_argument('-c', '--config', default='config/config_s3_random.json', type=str,
                       help='config file path (default: None)')
-    args.add_argument('-r', '--resume', default=None, type=str,
+    parser.add_argument('-r', '--resume', default=None, type=str,
                       help='path to latest checkpoint (default: None)')
-    args.add_argument('-d', '--device', default=None, type=str,
+    parser.add_argument('-d', '--device', default=None, type=str,
                       help='indices of GPUs to enable (default: all)')
+    parser.add_argument('--ml', action='store_true',
+                      help='Activating ClearML flag.')
 
     # custom cli options to modify configuration from default values given in json file.
     CustomArgs = collections.namedtuple('CustomArgs', 'flags type target')
@@ -78,5 +96,7 @@ if __name__ == '__main__':
         CustomArgs(['--lr', '--learning_rate'], type=float, target='optimizer;args;lr'),
         CustomArgs(['--bs', '--batch_size'], type=int, target='data_loader;args;batch_size')
     ]
-    config = ConfigParser.from_args(args, options)
-    main(config)
+    config = ConfigParser.from_args(parser, options)
+    args = parser.parse_args()
+    
+    main(config, args)

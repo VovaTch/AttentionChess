@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from model.score_functions import ScoreScaling
-from utils.util import move_to_coordinate
+from utils import move_to_coordinate
 
 # TODO: Work on it
 QUERY_WORD_LEN = 256

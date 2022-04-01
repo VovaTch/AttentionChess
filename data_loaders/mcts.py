@@ -132,13 +132,11 @@ def ucb_scores(parent, children: dict):
     prior_scores = {move: child.prior_prob * math.sqrt(parent.visit_count) / (child.visit_count + 1) for move, child in children.items()}
     value_scores = {}
     for move, child in children.items():
-        if child.visit_count > 0 and child.value_max() is not None:
-            value_scores[move] = -torch.tanh(torch.tensor(child.value_max())) \
-                if child.board.turn else torch.tanh(torch.tensor(child.value_max()))
+        if child.visit_count > 0 and child.value_avg() is not None:
+            value_scores[move] = -torch.tanh(torch.tensor(child.value_avg())) \
+                if child.board.turn else torch.tanh(torch.tensor(child.value_avg()))
         else:
             value_scores[move] = 0
-            
-        # value_scores[move] *= 10 # THIS IS A WORKAROUND, NEED TO SEE HOW WELL DOES THIS WORK
     
     collector_scores = {move: value_scores[move] + prior_scores[move] for move, _ in children.items()}     
 
@@ -351,4 +349,3 @@ class MCTS:
             node.visit_count += 1
             value *= value_multiplier
             
-        # print('\n')
