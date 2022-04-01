@@ -355,11 +355,11 @@ def main(args, config):
                     
 
                     # Print value
-                    value_np = value_full[0].detach().numpy()
-                    print(f'[INFO] Board value: {value_np}')
+                    value_np = value_full[0].detach().numpy() / 100
+                    print(f'[INFO] Board value: {value_np:.5f}')
 
                     sample_node = mcts.run(gs.board)
-                    sample = sample_node.select_action(temperature=0.0)
+                    sample = sample_node.select_action(temperature=0.0, print_action_count=True)
 
                     print(f'[INFO] Move in uci: {sample}')
                     gs.make_move_san(sample)

@@ -35,7 +35,7 @@ class Node:
         """
         return len(self.children) > 0
     
-    def select_action(self, temperature = 0):
+    def select_action(self, temperature = 0, print_action_count=False):
         """
         Select action according to the visit count distribution and the temperature.
         """
@@ -57,7 +57,11 @@ class Node:
             cat_dist = torch.distributions.Categorical(probs=visit_count_distribution)
             action = actions[cat_dist.sample()]
             
-        # print({act: vis_c for act, vis_c in zip(actions, visit_counts)})
+        if print_action_count:
+            action_value = {act: round(float(move.value_avg()), 5) for act, move in zip(actions, self.children.values())}
+            print(f'Action values: {action_value}')
+            action_dict = {act: int(vis_c) for act, vis_c in zip(actions, visit_counts)}
+            print(f'Action list: {action_dict}')
 
         return action
     
@@ -76,8 +80,9 @@ class Node:
         """
         Return the average of the children's value
         """
-        
-        return self.value_sum / self.visit_count
+
+        return self.value_sum / self.visit_count if self.visit_count > 0 else 0
+
     
     def value_max(self):
         """
@@ -129,16 +134,25 @@ def ucb_scores(parent, children: dict):
     """
     The score for an action that would transition between the parent and child.
     """
+    c_puct = 5
+    
     prior_scores = {move: child.prior_prob * math.sqrt(parent.visit_count) / (child.visit_count + 1) for move, child in children.items()}
     value_scores = {}
     for move, child in children.items():
         if child.visit_count > 0 and child.value_avg() is not None:
-            value_scores[move] = -torch.tanh(torch.tensor(child.value_avg())) \
-                if child.board.turn else torch.tanh(torch.tensor(child.value_avg()))
+            # value_scores[move] = -torch.tanh(torch.tensor(child.value_avg())) \
+            #     if child.board.turn else torch.tanh(torch.tensor(child.value_avg()))
+            value_scores[move] = -torch.tensor(child.value_avg()) \
+                if child.board.turn else torch.tensor(child.value_avg())
+    
         else:
             value_scores[move] = 0
     
-    collector_scores = {move: value_scores[move] + prior_scores[move] for move, _ in children.items()}     
+    collector_scores = {move: value_scores[move] + c_puct * prior_scores[move] for move, _ in children.items()}
+    # print(f'Turn: {child.board.turn}, Value scores: {value_scores}\n')
+    # print(f'Turn: {child.board.turn}, Prior scores: {prior_scores}\n')
+    
+    # print(f'UCB adjustment: {math.sqrt(parent.visit_count) / (child.visit_count + 1)}')
 
     return collector_scores
         
@@ -254,7 +268,7 @@ class MCTS:
         return board_collection, cls_vec_collection, board_value_collection      
     
     
-    def run_multi(self, boards: list, verbose=False):
+    def run_multi(self, boards: list, verbose=False, print_enchors=False):
         
         self.model_good_flag = True
         roots = [Node(board, 0.0, self.device) for board in boards]
@@ -296,6 +310,14 @@ class MCTS:
                 
                 value = self.get_endgame_value(next_board)
                 value_list[idx] = value
+                
+                if print_enchors:
+                    if value == 5:
+                        print(f'White wins')
+                    elif value == -5:
+                        print(f'Black wins')
+                    elif value == 0:
+                        print(f'Draw')
                 
                 if value is None:
                     board_slice_list.append(next_board)

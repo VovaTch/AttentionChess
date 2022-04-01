@@ -71,7 +71,7 @@ class RandomSelfPlayDataset(Dataset):
             random_fen = generate_position()
             game_board_list.append(chess.Board(fen=random_fen))
             
-            print(f'Game fen: {random_fen}')
+            # print(f'Game fen: {random_fen}')
 
         self.board_collection = []
         self.move_quality_batch = torch.zeros((0, self.query_word_len)).to(self.mcts.device)
@@ -104,7 +104,7 @@ class RandomSelfPlayDataset(Dataset):
                     # Collect data for the class variables
                     self.board_collection.extend(boards_added)
                     self.move_quality_batch = torch.cat((self.move_quality_batch, cls_vec_added), dim=0).to(self.mcts.device)
-                    self.board_value_batch = torch.cat((self.board_value_batch, value_added), dim=0).to(self.mcts.device)
+                    self.board_value_batch = torch.cat((self.board_value_batch, torch.tanh(value_added)), dim=0).to(self.mcts.device)
                     move_idx_list.extend([-torch.inf for _ in range(len(boards_added))]) # Necessary for all of this to work; TODO: make the loss don't count it
             
                 # Reset the board list
