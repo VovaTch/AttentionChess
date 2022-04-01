@@ -4,8 +4,6 @@ import copy
 
 import torch
 import numpy as np
-from clearml import Task
-from clearml.backend_api import Session
 
 import data_loaders.dataloader as module_data
 import model.loss as module_loss
@@ -30,6 +28,8 @@ def main(config, args):
     
     if args.ml:
         """Handle ClearML integration"""
+        from clearml import Task
+        from clearml.backend_api import Session
         
         task = Task.init(project_name=config['name'], task_name=config['task_name'])
         Session._session_initial_timeout = (15., 30.)
