@@ -21,9 +21,9 @@
             "batch_size": 64,
             "shuffle": true,
             "validation_split": 0.00,
-            "num_workers": 0,
+            "num_workers": 4,
             "epochs_per_game": 5,
-            "min_counts": 20,
+            "min_counts": 200,
             "device": "cuda:0",
             "boards_per_sample": 64
         }

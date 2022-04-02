@@ -70,7 +70,7 @@ def main(config, args):
                       valid_data_loader=valid_data_loader,
                       lr_scheduler=lr_scheduler)
     
-    mcts_engine = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device)
+    mcts_engine = MCTS(copy.deepcopy(model), copy.deepcopy(model), 1000, device=device)
     data_loader.set_mcts(mcts_engine)
 
     trainer.train()

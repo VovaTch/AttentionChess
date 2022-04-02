@@ -119,4 +119,4 @@ class RandomSelfPlayDataset(Dataset):
         self.selected_move_idx = self.selected_move_idx.repeat(self.epochs_per_game * multiplier)
 
     def __len__(self):
-        return int(1e5)
+        return int(1e4)
