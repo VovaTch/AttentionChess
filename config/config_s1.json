@@ -15,7 +15,7 @@
         }
     },
     "data_loader": {
-        "type": "RuleAttentionChessLoader",
+        "type": "EndingDatabaseChessLoader",
         "args":{
             "batch_size": 32,
             "shuffle": true,
@@ -36,16 +36,15 @@
         "type": "Criterion",
         "args": {
             "eos_coef": 1,
-            "losses": ["loss_quality", "loss_board_value"]
+            "losses": ["loss_board_value"]
         }
     },
     "loss_weights":
     {
-        "loss_quality": 1,
         "loss_board_value": 200
     },
     "metrics": [
-        "quality_loss", "board_value_loss"
+        "board_value_loss"
     ],
     "lr_scheduler": {
         "type": "StepLR",
@@ -58,7 +57,7 @@
         "epochs": 5000,
 
         "save_dir": "saved/",
-        "save_period": 1,
+        "save_period": 10,
         "verbosity": 2,
         
         "monitor": "min val_loss",

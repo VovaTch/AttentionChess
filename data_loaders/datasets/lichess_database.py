@@ -27,15 +27,23 @@ class LichessDatabaseChessDataset(Dataset):
         for _ in open(dataset_path):
             self.length_of_dataset += 1
         self.headers = next(self.csv_reader)
-
+        next(self.csv_reader)
+             
     def __getitem__(self, _):
         
-        sampled_row_raw = next(self.csv_reader)
-        sampled_row = {header: data for (header, data) in zip(self.headers, sampled_row_raw)}
+        incorrect_fen_flag = True
         
-        sampled_board = chess.Board(sampled_row['Game fen'])
-        sampled_board_value_batch = float(sampled_row['Board value'])
-        sampled_quality_batch = torch.tensor([float(sampled_row[idx]) for idx in list(sampled_row.keys())[2:]])
+        while incorrect_fen_flag:
+            try:  # Really ugly, but sometimes the fen doesn't parse well
+                sampled_row_raw = next(self.csv_reader)
+                sampled_row = {header: data for (header, data) in zip(self.headers, sampled_row_raw)}
+                
+                sampled_board = chess.Board(sampled_row['Game fen'])
+                sampled_board_value_batch = float(sampled_row['Board value'])
+                sampled_quality_batch = torch.tensor([float(sampled_row[idx]) for idx in list(sampled_row.keys())[2:]])
+                incorrect_fen_flag = False
+            except:
+                pass
         
         # Fix if the size doesn't fit
         if sampled_quality_batch.size()[0] < self.query_word_len:
@@ -55,7 +63,7 @@ class LichessDatabaseChessDataset(Dataset):
         return sampled_board, sampled_quality_batch, sampled_board_value_batch, sampled_move_idx
 
     def __len__(self):
-        return int(self.length_of_dataset)
+        return int(self.length_of_dataset) - 5000 # A workaround to hopefully not get the training freeze
     
     def __del__(self):
         self.csv_file.close()

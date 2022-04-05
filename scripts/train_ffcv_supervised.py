@@ -9,7 +9,7 @@ import data_loaders.dataloader as module_data
 import model.loss as module_loss
 import model.metric as module_metric
 import model.attchess as module_arch
-from ..parse_config import ConfigParser
+from parse_config import ConfigParser
 from trainer.trainer_ffcv_s1 import Trainer
 from utils import prepare_device
 from data_loaders.dataloader import collate_fn

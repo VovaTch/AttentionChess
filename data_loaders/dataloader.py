@@ -127,7 +127,16 @@ class LichessDatabaseChessLoader(BaseDataLoader):
         super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
 
 
+class EndingDatabaseChessLoader(BaseDataLoader):
+    """
+    MNIST data loading demo using BaseDataLoader
+    """
+    def __init__(self, batch_size, collate_fn, data_dir='lichess_data/endgame_data_raw_1.csv',
+                 shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256):
 
+        self.dataset_path = data_dir
+        self.dataset = LichessDatabaseChessDataset(data_dir, query_word_len=query_word_len)
+        super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
 
 
 def collate_fn(batch):
