@@ -25,8 +25,6 @@ A personal project for creating a transformer encoder-decoder-based chess engine
 
 ## Current WIP: 
 
-* Customly draw the pieces and the board.
-* Longer supervised training.
-* Better algorithm for move selection during inference; for now, outliers dominate the search tree, although the value net shows decent results.
-* Self play, first with only model, then with 3 types.
-* Formulize and publish seperately the novel ripple-net layers that I use: linear and attention blocks.
+* Anchor-based learning scheme. Learn endgame positions, then generate random positions and learn from the leaves of the search tree, finally train fully self play from the initial board position.
+* Incorporate FFCV for faster training.
+* Clean the code bloat, make RippleLinear publically available if used (not likely).
