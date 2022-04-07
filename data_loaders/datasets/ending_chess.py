@@ -36,12 +36,15 @@ class EndingChessDataset(Dataset):
     def load_game(self):
 
         while True:
+            board_collection_ind = list()
             game = chess.pgn.read_game(self.pgn)
             board_game = chess.Board()
+            board_collection_ind.append(copy.deepcopy(board_game))
             move_counter = 0
             for move in game.mainline_moves():
                 move_counter += 1
                 board_game.push(move)
+                board_collection_ind.append(copy.deepcopy(board_game))
             
             if 'Termination' in game.headers and game.headers['Termination'] == 'Normal' and move_counter > 0:
                 
