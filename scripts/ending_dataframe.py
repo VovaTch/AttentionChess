@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from model.score_functions import ScoreScaling
-from utils import move_to_coordinate
+from utils import move_to_coordinate, board_to_embedding_coord
 
 # TODO: Work on it
 QUERY_WORD_LEN = 256
@@ -58,6 +58,7 @@ def main(args):
                zip(board_collection, board_value_list, move_idx_list):
             
             board_fen = board_ind.fen()
+            
             turn_number = 1 if board_ind.turn else -1
             
             # Create new entry if not in dict
@@ -84,14 +85,30 @@ def main(args):
             
             # Write a table PGN with headers based on a dict; should be faster access?
             with open(f'lichess_data/endgame_data_raw_{file_count}.csv', mode='w') as csv_file:
-                fieldnames = ['Game fen', 'Board value']
+                fieldnames = ['Game board', 'Board value', 'Legal move matrix']
                 fieldnames.extend(f'index {idx}' for idx in range(QUERY_WORD_LEN))
                 writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                 writer.writeheader()
                 for key in pgn_dict:
+                    
+                    try:
+                        check_board = chess.Board(key)
+                        board_torch = board_to_embedding_coord(check_board).int()
+                        board_list = board_torch.tolist()
+                        legal_move_torch = torch.zeros((64, 76), requires_grad=False) - 1
+                        for legal_move in check_board.legal_moves:
+                            move_coor = move_to_coordinate(legal_move)
+                            legal_move_torch[move_coor[0], move_coor[1]] = 1
+                    except:
+                        print(f'Fen is illegal')
+                        continue
+                        
+                    
                     written_dict = {}
-                    written_dict['Game fen'] = key
+                    written_dict['Game board'] = board_list
                     written_dict['Board value'] = pgn_dict[key][1]
+                    written_dict['Legal move matrix'] = legal_move_torch.int().tolist()
+                    
                     written_dict.update({f'index {idx}': int(pgn_dict[key][2][idx]) for idx in range(QUERY_WORD_LEN)})
                     writer.writerow(written_dict)
                     
@@ -105,7 +122,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='A script to save an ending database as csv file.')
     parser.add_argument('-p', '--path', type=str, default = 'lichess_data/lichess_db_standard_rated_2016-09.pgn', 
                         help='The path of the game dataset.')
-    parser.add_argument('-g', '--game_limit', type=int, default=2e5, 
+    parser.add_argument('-g', '--game_limit', type=int, default=200000, 
                         help='Number of games processed. Infinite - all the games in the file.')
     parser.add_argument('-m', '--base_multiplier', type=float, default=0.95,
                         help='Multiplier for decaying reward for long games')

@@ -3,7 +3,7 @@ from base import BaseDataLoader
 
 from .mcts import MCTS
 from .datasets import BoardEmbeddingDataset, MoveEmbeddingDataset, RuleChessDataset,\
-    GuidedSelfPlayDataset, FullSelfPlayDataset, LichessDatabaseChessDataset, RandomSelfPlayDataset
+    GuidedSelfPlayDataset, FullSelfPlayDataset, LichessDatabaseChessDataset, RandomSelfPlayDataset, EndingChessDataset
 
 class BoardEmbeddingLoader(BaseDataLoader):
     """
@@ -127,15 +127,15 @@ class LichessDatabaseChessLoader(BaseDataLoader):
         super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
 
 
-class EndingDatabaseChessLoader(BaseDataLoader):
+class EndingChessLoader(BaseDataLoader):
     """
     MNIST data loading demo using BaseDataLoader
     """
-    def __init__(self, batch_size, collate_fn, data_dir='lichess_data/endgame_data_raw_1.csv',
-                 shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256):
+    def __init__(self, batch_size, collate_fn, data_dir='lichess_data/lichess_db_standard_rated_2016-09.pgn',
+                 shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256, base_multiplier=0.95):
 
         self.dataset_path = data_dir
-        self.dataset = LichessDatabaseChessDataset(data_dir, query_word_len=query_word_len)
+        self.dataset = EndingChessDataset(data_dir, query_word_len=query_word_len, base_multiplier=base_multiplier)
         super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
 
 
