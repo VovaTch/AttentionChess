@@ -45,6 +45,8 @@ class EndingChessDataset(Dataset):
                 move_counter += 1
                 board_game.push(move)
                 board_collection_ind.append(copy.deepcopy(board_game))
+                
+            board_collection_ind = board_collection_ind[::-1]
             
             if 'Termination' in game.headers and game.headers['Termination'] == 'Normal' and move_counter > 0:
                 
