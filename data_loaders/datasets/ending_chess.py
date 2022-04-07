@@ -22,9 +22,7 @@ class EndingChessDataset(Dataset):
 
     def __getitem__(self, _):
 
-        while self.game_length == 0:
-            self.load_game()
-            self.game_length = len(self.board_collection)
+        self.load_game()
 
         sampled_board = copy.deepcopy(self.board_collection[0])
         sampled_quality_batch = self.move_quality_batch[0].clone()
@@ -37,7 +35,7 @@ class EndingChessDataset(Dataset):
 
         while True:
             game = chess.pgn.read_game(self.pgn)
-            board_game = chess.Board()
+            board_game = game.board()
             move_counter = 0
             for move in game.mainline_moves():
                 move_counter += 1

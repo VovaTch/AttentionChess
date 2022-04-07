@@ -287,7 +287,7 @@ class AttChess(BaseModel):
             legal_move_list = legal_move_list_pruned
             cls_score_batch = cls_score_pruned
 
-        return legal_move_list, cls_score_batch, board_value * 100 / 3
+        return legal_move_list, cls_score_batch, torch.tanh(board_value) * 100
 
 class EndHead(nn.Module):
     
