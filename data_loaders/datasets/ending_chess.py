@@ -7,7 +7,7 @@ import chess.pgn
 
 class EndingChessDataset(Dataset):
 
-    def __init__(self, dataset_path, query_word_len=256, base_multiplier=0.95):
+    def __init__(self, dataset_path, query_word_len=256, base_multiplier=0.95, boards_to_end=0):
         super(EndingChessDataset, self).__init__()
         self.pgn = open(dataset_path, encoding="utf-8")
         self.game = None
@@ -19,6 +19,7 @@ class EndingChessDataset(Dataset):
         self.board_value_batch = None
         self.selected_move_idx = None
         self.base_multiplier = base_multiplier
+        self.boards_to_end = boards_to_end
 
     def __getitem__(self, _):
 
@@ -61,7 +62,7 @@ class EndingChessDataset(Dataset):
                     base_eval = 0
                     break
                 
-        self.board_collection = [board_game]
+        self.board_collection = [board_collection_ind[self.boards_to_end]]
         self.move_quality_batch = torch.zeros((1, self.query_word_len))
         self.board_value_batch = torch.zeros(1)
         board_value_list = [base_eval]
