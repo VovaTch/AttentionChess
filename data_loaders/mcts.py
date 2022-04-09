@@ -265,7 +265,7 @@ class MCTS:
                 board_value_collection = torch.cat((board_value_collection, board_value_add), dim=0)
                
         cls_vec_collection = F.normalize(cls_vec_collection, p=1, dim=1)
-        return board_collection, cls_vec_collection, board_value_collection      
+        return board_collection, cls_vec_collection, torch.tanh(board_value_collection)      
     
     
     def run_multi(self, boards: list, verbose=False, print_enchors=False):

@@ -1,30 +1,29 @@
 import copy
 
-import chess
 import torch
 from torch.utils.data import Dataset
-from colorama import Fore
+import chess
+import chess.pgn
 
-from utils.util import is_game_end
+class PreEndingChessDataset(Dataset):
 
-class FullSelfPlayDataset(Dataset):
-    
-    def __init__(self, query_word_len=256, num_of_sims=100, epochs_per_game=1, min_counts=10, simultaneous_mcts=32, move_limit=300, 
-                 win_multipler=2):
-        super().__init__()
-        
+    def __init__(self, dataset_path, query_word_len=256, base_multiplier=0.95, boards_to_end=0, 
+                 num_of_sims=100, epochs_per_game=1, min_counts=10, simultaneous_mcts=32, move_limit=300):
+        super(PreEndingChessDataset, self).__init__()
+        self.pgn = open(dataset_path, encoding="utf-8")
+        self.game = None
+
         # Initiate engines, will later assert that they aren't empty.
         self.good_engine = None
         self.evil_engine = None
-        
-        # Initiate variables from outside
+
         self.query_word_len = query_word_len
         self.num_of_sims = num_of_sims
         self.epochs_per_game = epochs_per_game
         self.min_counts = min_counts
         self.simultaneous_mcts = simultaneous_mcts
         self.move_limit = move_limit
-        self.win_multiplier = win_multipler
+        
         
         # Initiate variables from the inside
         self.follow_idx = 0
@@ -33,13 +32,15 @@ class FullSelfPlayDataset(Dataset):
         self.move_quality_batch = None
         self.board_value_batch = None
         self.selected_move_idx = None
-        
+        self.base_multiplier = base_multiplier
+        self.boards_to_end = boards_to_end
+
         # Initialize MCTS:
         self.mcts = None
         self.mcts_game = None
-        
+
     def __getitem__(self, _):
-        
+
         # Assert engines are inputed
         assert self.mcts is not None, 'Must load an MCTS object into the dataloader'
 
@@ -59,57 +60,52 @@ class FullSelfPlayDataset(Dataset):
             self.game_length = 0
 
         return sampled_board, sampled_quality_batch, sampled_board_value_batch, sampled_move_idx 
-    
+
     def load_game(self):
-        """
-        Game running function;
-        """
 
-        board = chess.Board()
-        multiplier = 1
+        # Reset the board collection variable
         game_board_list = []
-        
-        for move_idx in range(self.move_limit):
-            
-            move_counter = move_idx + 1
-            
-            # Append all board states
-            game_board_list.append(copy.deepcopy(board))
-            
-            # Find the best move from a short search
-            sample_node = self.mcts_game.run(board)
-            sample = sample_node.select_action(temperature=0.3)
-            
-            # Append the move to the board
-            board.push_san(sample)
-            print(f'[FullSelfPlay] Pushed move: ' + Fore.YELLOW + f'{sample}' + 
-                  Fore.RESET + f',   \t move: {move_idx // 2 + 1}')
-            
-            # Check for game end
-            ending_flag, result = is_game_end(board)
-            if ending_flag:
-                
-                if result == 1:
-                    result_string = 'white wins'
-                    multiplier = self.win_multiplier
-                elif result == -1:
-                    result_string = 'black wins'
-                    multiplier = self.win_multiplier
-                else:
-                    result_string = 'draw'
-                    multiplier = 1
-                    
-                print(Fore.RED + f'[FullSelfPlay] Game result: {result_string}' + Fore.RESET)
-                
-                break
 
+        # Run until the required number of boards is filled.
+        for _ in range(self.simultaneous_mcts):
+            while True:
+                board_collection_ind = list()
+                game = chess.pgn.read_game(self.pgn)
+                board_game = game.board()
+                board_collection_ind.append(copy.deepcopy(board_game))
+
+                move_counter = 0
+                for move in game.mainline_moves():
+                    move_counter += 1
+                    board_game.push(move)
+                    board_collection_ind.append(copy.deepcopy(board_game))
+                    
+                board_collection_ind = board_collection_ind[::-1]
+                
+                if 'Termination' in game.headers and game.headers['Termination'] == 'Normal' and move_counter > 0:
+                    
+                    result = game.headers['Result']
+                    
+                    if board_game.is_checkmate and result == '1-0': # White wins
+                        base_eval = 1
+                        break
+                    elif board_game.is_checkmate and result == '0-1': # Black wins
+                        base_eval = -1
+                        break
+                    elif result == '0-0':
+                        base_eval = 0
+                        break
+            
+            # Add the board with the requirements
+            game_board_list.append(board_collection_ind[self.boards_to_end])
+                
         self.board_collection = []
         self.move_quality_batch = torch.zeros((0, self.query_word_len)).to(self.mcts.device)
         self.board_value_batch = torch.zeros(0).to(self.mcts.device)
         move_idx_list = []
             
-        board_list_to_mcts = []
-
+        board_list_to_mcts = []    
+        
         for board_num, board in enumerate(game_board_list):
             
             # print(board_num)
@@ -139,14 +135,15 @@ class FullSelfPlayDataset(Dataset):
             
                 # Reset the board list
                 board_list_to_mcts = []
-            
+        
         self.selected_move_idx = torch.tensor(move_idx_list).to(self.mcts.device)
         
         # Repeat the data as long as needed
-        self.board_collection *= self.epochs_per_game * multiplier
-        self.move_quality_batch = self.move_quality_batch.repeat((self.epochs_per_game * multiplier, 1))
-        self.board_value_batch = self.board_value_batch.repeat(self.epochs_per_game * multiplier)
-        self.selected_move_idx = self.selected_move_idx.repeat(self.epochs_per_game * multiplier)
+        self.board_collection *= self.epochs_per_game 
+        self.move_quality_batch = self.move_quality_batch.repeat((self.epochs_per_game, 1))
+        self.board_value_batch = self.board_value_batch.repeat(self.epochs_per_game)
+        self.selected_move_idx = self.selected_move_idx.repeat(self.epochs_per_game)
+
 
     def __len__(self):
-        return int(2e4)
+        return int(1e6)

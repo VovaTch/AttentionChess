@@ -3,7 +3,8 @@ from base import BaseDataLoader
 
 from .mcts import MCTS
 from .datasets import BoardEmbeddingDataset, MoveEmbeddingDataset, RuleChessDataset,\
-    GuidedSelfPlayDataset, FullSelfPlayDataset, LichessDatabaseChessDataset, RandomSelfPlayDataset, EndingChessDataset
+    GuidedSelfPlayDataset, FullSelfPlayDataset, LichessDatabaseChessDataset, RandomSelfPlayDataset, EndingChessDataset, \
+        PreEndingChessDataset
 
 class BoardEmbeddingLoader(BaseDataLoader):
     """
@@ -79,6 +80,34 @@ class FullSelfPlayLoader(BaseDataLoader):
         self.dataset = FullSelfPlayDataset(query_word_len=query_word_len, num_of_sims=num_of_sims, 
                                              epochs_per_game=epochs_per_game, min_counts=min_counts, simultaneous_mcts=batch_size,
                                              win_multipler=win_multiplier)
+        self.device = device
+        super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
+        
+    def set_mcts_game(self, mcts: MCTS):
+        
+        self.dataset.mcts_game = mcts
+        
+    def set_mcts_learn(self, mcts: MCTS):
+        
+        self.dataset.mcts = mcts
+        
+    def set_mcts(self, mcts: MCTS):
+        
+        self.set_mcts_game(mcts)
+        self.set_mcts_learn(mcts)
+        
+        
+class PreEndingChessLoader(BaseDataLoader):
+    """
+    Data loader for self playing games with moves from database.
+    """
+    def __init__(self, batch_size, collate_fn, data_dir='lichess_data/lichess_db_standard_rated_2016-09.pgn',
+                 shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256, 
+                 num_of_sims=100, epochs_per_game=1, min_counts=10, device='cpu', win_multiplier=1, boards_to_end=6, *args, **kwargs):
+
+        self.dataset = PreEndingChessDataset(dataset_path=data_dir, query_word_len=query_word_len, num_of_sims=num_of_sims, 
+                                             epochs_per_game=epochs_per_game, min_counts=min_counts, simultaneous_mcts=batch_size, 
+                                             boards_to_end=boards_to_end)
         self.device = device
         super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers, collate_fn=collate_fn)
         
