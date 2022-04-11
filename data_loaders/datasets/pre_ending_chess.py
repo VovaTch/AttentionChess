@@ -97,7 +97,10 @@ class PreEndingChessDataset(Dataset):
                         break
             
             # Add the board with the requirements
-            game_board_list.append(board_collection_ind[self.boards_to_end])
+            if len(board_collection_ind) > self.boards_to_end:
+                game_board_list.append(board_collection_ind[self.boards_to_end])
+            else:
+                game_board_list.append(board_collection_ind[-1])
                 
         self.board_collection = []
         self.move_quality_batch = torch.zeros((0, self.query_word_len)).to(self.mcts.device)
@@ -146,4 +149,4 @@ class PreEndingChessDataset(Dataset):
 
 
     def __len__(self):
-        return int(1e6)
+        return int(1e5)

@@ -268,7 +268,7 @@ class MCTS:
         return board_collection, cls_vec_collection, torch.tanh(board_value_collection)      
     
     
-    def run_multi(self, boards: list, verbose=False, print_enchors=False):
+    def run_multi(self, boards: list, verbose=False, print_enchors=True):
         
         self.model_good_flag = True
         roots = [Node(board, 0.0, self.device) for board in boards]
