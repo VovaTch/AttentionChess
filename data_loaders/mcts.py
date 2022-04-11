@@ -349,7 +349,7 @@ class MCTS:
                         print(node)
                         
         if print_anchor:
-            print(f'Out of {self.num_sims} simulations, {white_win_count} white wins, {black_win_count} black wins, {draw_count} draws.')
+            print(f'Out of {self.num_sims} simulations, {len(roots)} roots, {white_win_count} white wins, {black_win_count} black wins, {draw_count} draws.')
                         
         return roots
                 
