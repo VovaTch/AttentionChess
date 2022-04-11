@@ -279,6 +279,11 @@ class MCTS:
         for idx, root in enumerate(roots):
             root.expand(legal_move_list[idx], cls_prob_list[idx])
             
+        # Create win/loss/draw counters for printing
+        white_win_count = 0
+        black_win_count = 0
+        draw_count = 0
+            
         # Run sim for every board
         for _ in range(self.num_sims):
             node_edge_list = [None for _ in roots] # Need to do this, otherwise the roots will be overridden by the leaf nodes
@@ -311,18 +316,18 @@ class MCTS:
                 value = self.get_endgame_value(next_board)
                 value_list[idx] = value
                 
-                if print_enchors:
-                    if value == 5:
-                        print(f'White wins')
-                    elif value == -5:
-                        print(f'Black wins')
-                    elif value == 0:
-                        print(f'Draw')
+                if value == 5:
+                    white_win_count += 1
+                elif value == -5:
+                    black_win_count += 1
+                elif value == 0:
+                    draw_count += 1
                 
                 if value is None:
                     board_slice_list.append(next_board)
                 else:
                     node.half_move = 1 # Used to compute the value function in old version
+                 
                     
             # Forward all boards through the net
             if len(board_slice_list) > 0:
@@ -342,6 +347,9 @@ class MCTS:
                 if verbose:
                     for node in search_path:
                         print(node)
+                        
+        if print_anchor:
+            print(f'Out of {self.num_sims} simulations, {len(roots)} roots, {white_win_count} white wins, {black_win_count} black wins, {draw_count} draws.')
                         
         return roots
                 
