@@ -65,6 +65,9 @@ class PreEndingChessDataset(Dataset):
 
         # Reset the board collection variable
         game_board_list = []
+        white_wins = 0
+        black_wins = 0
+        draws = 0
 
         # Run until the required number of boards is filled.
         for _ in range(self.simultaneous_mcts):
@@ -87,13 +90,13 @@ class PreEndingChessDataset(Dataset):
                     result = game.headers['Result']
                     
                     if board_game.is_checkmate and result == '1-0': # White wins
-                        base_eval = 1
+                        white_wins += 1
                         break
                     elif board_game.is_checkmate and result == '0-1': # Black wins
-                        base_eval = -1
+                        black_wins += 1
                         break
                     elif result == '0-0':
-                        base_eval = 0
+                        draws += 1
                         break
             
             # Add the board with the requirements
@@ -101,6 +104,8 @@ class PreEndingChessDataset(Dataset):
                 game_board_list.append(board_collection_ind[self.boards_to_end])
             else:
                 game_board_list.append(board_collection_ind[-1])
+                
+        print(f'From {self.simultaneous_mcts}, {white_wins} white wins, {black_wins} black wins, {draws} draws.')
                 
         self.board_collection = []
         self.move_quality_batch = torch.zeros((0, self.query_word_len)).to(self.mcts.device)
@@ -134,7 +139,7 @@ class PreEndingChessDataset(Dataset):
                     self.board_collection.extend(boards_added)
                     self.move_quality_batch = torch.cat((self.move_quality_batch, cls_vec_added), dim=0).to(self.mcts.device)
                     self.board_value_batch = torch.cat((self.board_value_batch, value_added), dim=0).to(self.mcts.device)
-                    move_idx_list.extend([-torch.inf for _ in range(len(boards_added))]) # Necessary for all of this to work; TODO: make the loss don't count it
+                    move_idx_list.extend([-1 for _ in range(len(boards_added))]) # Necessary for all of this to work; TODO: make the loss don't count it
             
                 # Reset the board list
                 board_list_to_mcts = []

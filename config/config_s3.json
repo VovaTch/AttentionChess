@@ -21,16 +21,17 @@
             "shuffle": true,
             "validation_split": 0.00,
             "num_workers": 0,
-            "epochs_per_game": 5,
+            "epochs_per_game": 2,
             "min_counts": 20,
             "device": "cuda:0",
-            "win_multiplier": 5
+            "win_multiplier": 5,
+            "boards_to_end": 1
         }
     },
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-3,
+            "lr": 1e-2,
             "weight_decay": 1e-6,
             "amsgrad": false
         }
@@ -46,7 +47,7 @@
     "loss_weights":
     {
         "loss_quality": 1,
-        "loss_board_value": 10
+        "loss_board_value": 1
     },
     "metrics": [
         "quality_loss", "board_value_loss"

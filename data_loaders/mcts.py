@@ -134,7 +134,7 @@ def ucb_scores(parent, children: dict):
     """
     The score for an action that would transition between the parent and child.
     """
-    c_puct = 5
+    c_puct = 1
     
     prior_scores = {move: child.prior_prob * math.sqrt(parent.visit_count) / (child.visit_count + 1) for move, child in children.items()}
     value_scores = {}
@@ -196,7 +196,8 @@ class MCTS:
     def _is_game_end(self, board: chess.Board):
         """Checks if the game ends."""
         if board.is_checkmate():
-            return True, -1 * board.turn + 1 * (not board.turn)
+            result_const = -1 if board.turn else 1
+            return True, result_const
         elif board.is_stalemate() or board.is_repetition() or \
                 board.is_seventyfive_moves() or board.is_insufficient_material():
             return True, 0
@@ -348,7 +349,7 @@ class MCTS:
                     for node in search_path:
                         print(node)
                         
-        if print_anchor:
+        if print_enchors:
             print(f'Out of {self.num_sims} simulations, {len(roots)} roots, {white_win_count} white wins, {black_win_count} black wins, {draw_count} draws.')
                         
         return roots

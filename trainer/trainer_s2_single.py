@@ -98,7 +98,7 @@ class Trainer(BaseTrainer):
             # Set models in case of full self play; needed because there are 2 MCTS objects
             self.data_loader.dataset.mcts.good_model = copy.deepcopy(self.model)
             self.data_loader.dataset.mcts.evil_model = copy.deepcopy(self.model)
-            if self.config['data_loader'] == 'FullSelfPlayLoader':
+            if self.config['data_loader'] in ['FullSelfPlayLoader', 'PreEndingChessLoader']:
                 self.data_loader.dataset.mcts_game.good_model = copy.deepcopy(self.model)
                 self.data_loader.dataset.mcts_game.evil_model = copy.deepcopy(self.model)
             
