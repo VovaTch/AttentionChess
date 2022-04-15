@@ -13,7 +13,7 @@ from model.attchess import AttChess
 
 class Node:
     
-    def __init__(self, board: chess.Board, prior_prob: float, device='cpu') -> None:
+    def __init__(self, board: chess.Board, prior_prob: float, device='cpu', use_dir=False) -> None:
         """
         Initiates the node for the MCTS
         """
@@ -28,6 +28,7 @@ class Node:
         self.value_candidates = {}
         self.value_sum = 0.0
         self.board = board
+        self.use_dir = use_dir
         
     def expanded(self):
         """
@@ -69,7 +70,7 @@ class Node:
         """
         Select the child with the highest UCB score
         """
-        ucb_score_dict = ucb_scores(self, self.children)
+        ucb_score_dict = ucb_scores(self, self.children, dir_noise=self.use_dir)
         max_score_move = max(ucb_score_dict, key=ucb_score_dict.get)
         
         best_child = self.children[max_score_move]
@@ -112,7 +113,7 @@ class Node:
             else:
                 new_board.push(move)
                 
-            self.children[self.board.san(move)] = Node(prior_prob=prob, board=new_board, device=self.device)
+            self.children[self.board.san(move)] = Node(prior_prob=prob, board=new_board, device=self.device, use_dir=self.use_dir)
             # if self.board.turn:
             #     self.value_candidates[self.board.san(move)] = - torch.inf
             # else:
@@ -130,18 +131,28 @@ class Node:
         
         
       
-def ucb_scores(parent, children: dict):
+def ucb_scores(parent, children: dict, dir_noise: bool=False):
     """
     The score for an action that would transition between the parent and child.
     """
     c_puct = 1
+    dir_alpha = 0.35
+    x_dir = 0.6
     
     prior_scores = {move: child.prior_prob * math.sqrt(parent.visit_count) / (child.visit_count + 1) for move, child in children.items()}
+    
+    # Insert Dirichlet noise like it was done in the AlphaZero paper.
+    if dir_noise:
+        dir_noise_obj = torch.distributions.Dirichlet(torch.tensor([dir_alpha for _ in children.values()]))
+        dir_noise_sample = dir_noise_obj.sample()
+        
+        for idx, (key, value) in enumerate(prior_scores.items()):
+            prior_scores[key] = x_dir * value + (1 - x_dir) * dir_noise_sample[idx]\
+                * math.sqrt(parent.visit_count) / (children[key].visit_count + 1)
+    
     value_scores = {}
     for move, child in children.items():
         if child.visit_count > 0 and child.value_avg() is not None:
-            # value_scores[move] = -torch.tanh(torch.tensor(child.value_avg())) \
-            #     if child.board.turn else torch.tanh(torch.tensor(child.value_avg()))
             value_scores[move] = -torch.tensor(child.value_avg()) \
                 if child.board.turn else torch.tensor(child.value_avg())
     
@@ -149,10 +160,6 @@ def ucb_scores(parent, children: dict):
             value_scores[move] = 0
     
     collector_scores = {move: value_scores[move] + c_puct * prior_scores[move] for move, _ in children.items()}
-    # print(f'Turn: {child.board.turn}, Value scores: {value_scores}\n')
-    # print(f'Turn: {child.board.turn}, Prior scores: {prior_scores}\n')
-    
-    # print(f'UCB adjustment: {math.sqrt(parent.visit_count) / (child.visit_count + 1)}')
 
     return collector_scores
         
@@ -163,12 +170,13 @@ class MCTS:
     board evaluations to levarage CUDA capabilities.
     """
     
-    def __init__(self, model_good: AttChess, model_evil: AttChess, num_sims, device='cpu'):
+    def __init__(self, model_good: AttChess, model_evil: AttChess, num_sims, device='cpu', use_dir=False):
         self.model_good = model_good
         self.model_evil = model_evil
         self.num_sims = num_sims
         self.model_good_flag = True
         self.device = device
+        self.use_dir = use_dir
         
         self.model_good.to(self.device)
         self.model_evil.to(self.device)
@@ -187,26 +195,16 @@ class MCTS:
         """
         Get final value if the game ended, else get None
         """
-        game_end_flag, result = self._is_game_end(board)
+        game_end_flag, result = _is_game_end(board)
         if game_end_flag:
             return result * 5.0
         else:
             return None
-    
-    def _is_game_end(self, board: chess.Board):
-        """Checks if the game ends."""
-        if board.is_checkmate():
-            result_const = -1 if board.turn else 1
-            return True, result_const
-        elif board.is_stalemate() or board.is_repetition() or \
-                board.is_seventyfive_moves() or board.is_insufficient_material():
-            return True, 0
-        return False, 0
         
     def run(self, board: chess.Board, verbose=False):
         
         self.model_good_flag = True
-        root = Node(board, 0.0, device=self.device)
+        root = Node(board, 0.0, device=self.device, use_dir=self.use_dir)
         
         # Expand the root node
         legal_move_list, cls_prob_list, _ = self.run_engine([board])
@@ -263,7 +261,14 @@ class MCTS:
                 # Recursivelly add the nodes with the correct count number
                 board_collection.extend(board_add)
                 cls_vec_collection = torch.cat((cls_vec_collection, cls_vec_add), dim=0)
-                board_value_collection = torch.cat((board_value_collection, board_value_add), dim=0)
+                board_value_collection = torch.cat((board_value_collection, torch.atanh(board_value_add)), dim=0)
+                                
+            # Endgame position should be considered as an endgame position by the network.
+            game_end, value_end = _is_game_end(child.board)
+            if game_end:
+                board_collection.append(child.board)
+                cls_vec_collection = torch.cat((cls_vec_collection, torch.zeros(1, 256).to(self.device)), dim=0)
+                board_value_collection = torch.cat((board_value_collection, torch.tensor([value_end * 5]).to(self.device)), dim=0)
                
         cls_vec_collection = F.normalize(cls_vec_collection, p=1, dim=1)
         return board_collection, cls_vec_collection, torch.tanh(board_value_collection)      
@@ -272,7 +277,7 @@ class MCTS:
     def run_multi(self, boards: list, verbose=False, print_enchors=True):
         
         self.model_good_flag = True
-        roots = [Node(board, 0.0, self.device) for board in boards]
+        roots = [Node(board, 0.0, self.device, use_dir=self.use_dir) for board in boards]
         root_boards = [node.board for node in roots]
         
         # Expand every root node
@@ -380,3 +385,13 @@ class MCTS:
             node.visit_count += 1
             value *= value_multiplier
             
+
+def _is_game_end(board: chess.Board):
+    """Checks if the game ends."""
+    if board.is_checkmate():
+        result_const = -1 if board.turn else 1
+        return True, result_const
+    elif board.is_stalemate() or board.is_repetition() or \
+            board.is_seventyfive_moves() or board.is_insufficient_material():
+        return True, 0
+    return False, 0

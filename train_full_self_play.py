@@ -59,8 +59,8 @@ def main(config):
                       valid_data_loader=valid_data_loader,
                       lr_scheduler=lr_scheduler)
     
-    mcts_learn = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device)
-    mcts_game = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device)
+    mcts_learn = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device, use_dir=True)
+    mcts_game = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device, use_dir=True)
     data_loader.set_mcts_learn(mcts_learn)
     data_loader.set_mcts_game(mcts_game)
 

@@ -18,10 +18,9 @@
         "type": "PreEndingChessLoader",
         "args":{
             "batch_size": 16,
-            "shuffle": true,
             "validation_split": 0.00,
             "num_workers": 0,
-            "epochs_per_game": 2,
+            "epochs_per_game": 3,
             "min_counts": 20,
             "device": "cuda:0",
             "win_multiplier": 5,
@@ -31,7 +30,7 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-2,
+            "lr": 1e-3,
             "weight_decay": 1e-6,
             "amsgrad": false
         }
