@@ -5,6 +5,7 @@
     "arch": {
         "type": "AttChess",
         "args": {
+            "hidden_dim": 64,
             "num_heads": 8,
             "num_encoder": 6,
             "num_decoder": 6,
@@ -17,7 +18,7 @@
     "data_loader": {
         "type": "EndingChessLoader",
         "args":{
-            "batch_size": 32,
+            "batch_size": 16,
             "shuffle": true,
             "validation_split": 0.0,
             "num_workers": 8
@@ -41,7 +42,7 @@
     },
     "loss_weights":
     {
-        "loss_board_value": 200
+        "loss_board_value": 1
     },
     "metrics": [
         "board_value_loss"
