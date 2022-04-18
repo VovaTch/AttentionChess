@@ -6,6 +6,8 @@ import copy
 import numpy as np
 import math
 
+from yaml import NodeEvent
+
 from model.score_functions import ScoreWinFast
 from model.attchess import AttChess
 
@@ -59,7 +61,7 @@ class Node:
             action = actions[cat_dist.sample()]
             
         if print_action_count:
-            action_value = {act: round(float(move.value_avg()), 5) for act, move in zip(actions, self.children.values())}
+            action_value = {act: round(float(np.tanh(move.value_avg())), 5) for act, move in zip(actions, self.children.values())}
             print(f'Action values: {action_value}')
             action_dict = {act: int(vis_c) for act, vis_c in zip(actions, visit_counts)}
             print(f'Action list: {action_dict}')
@@ -120,6 +122,29 @@ class Node:
             #     self.value_candidates[self.board.san(move)] = torch.inf
             
             self.value_candidates[self.board.san(move)] = None
+            
+    def find_greedy_value(self, value_multiplier=1.0):
+        
+        # Flag for if no visits for the children
+        child_no_visit_flag = True
+        for child in self.children.values():
+            if child.visit_count != 0:
+                child_no_visit_flag = False
+                break
+        
+        # Return the current value if leaf node
+        if child_no_visit_flag:
+            return self.value_avg()
+        
+        # Otherwise continue to the best child recursively.
+        else:
+            temp = self.use_dir
+            self.use_dir = False
+            _, best_child = self.select_child()
+            self.use_dir = temp
+            greedy_value = best_child.find_greedy_value() * value_multiplier
+            return greedy_value
+            
             
     def __repr__(self):
         """
@@ -361,7 +386,7 @@ class MCTS:
                 
             
 
-    def backpropagate(self, search_path, value, value_multiplier=0.95):
+    def backpropagate_old(self, search_path, value, value_multiplier=1.0):
         
         half_move_accumilated = 1
         
@@ -384,6 +409,20 @@ class MCTS:
             
             node.visit_count += 1
             value *= value_multiplier
+            
+    def backpropagate(self, search_path, value, value_multiplier=1.0):
+        """
+        Backpropagation according to the paper that claims that the most greedy leaf should determine the value
+        """
+        
+        for node_idx, node in reversed(list(enumerate(search_path))):
+            
+            node.visit_count += 1
+            if node_idx == len(search_path) - 1:
+                node.value_sum = node.visit_count * value
+            else:
+                node.value_sum = node.visit_count * node.find_greedy_value(value_multiplier=value_multiplier)
+            
             
 
 def _is_game_end(board: chess.Board):

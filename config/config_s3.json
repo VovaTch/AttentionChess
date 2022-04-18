@@ -25,7 +25,7 @@
             "min_counts": 20,
             "device": "cuda:0",
             "win_multiplier": 5,
-            "boards_to_end": 1
+            "boards_to_end": 5
         }
     },
     "optimizer": {
