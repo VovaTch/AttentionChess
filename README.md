@@ -25,6 +25,7 @@ A personal project for creating a transformer encoder-decoder-based chess engine
 
 ## Current WIP: 
 
-* Anchor-based learning scheme. Learn endgame positions, then generate random positions and learn from the leaves of the search tree, finally train fully self play from the initial board position.
-* Incorporate FFCV for faster training.
-* Clean the code bloat, make RippleLinear publically available if used (not likely).
+* Blow up the parameters until what my 2060 can handle, with an option to external training on colab.
+* Make the Jump-Start-RL style learning work, maybe in a need for debugging and hyperparameter tuning.
+* Fighting against the impossible. It seem making a specific playstyle is a stretch as AlphaZero was trained on an insane hardware and it would take me thousands of years to even make this competitive if I were to train it like DeepMind.\
+* Make a docker/colab such that anyone can play the game.
