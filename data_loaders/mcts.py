@@ -386,7 +386,7 @@ class MCTS:
                 
             
 
-    def backpropagate_old(self, search_path, value, value_multiplier=1.0):
+    def backpropagate(self, search_path, value, value_multiplier=1.0):
         
         half_move_accumilated = 1
         
@@ -410,7 +410,7 @@ class MCTS:
             node.visit_count += 1
             value *= value_multiplier
             
-    def backpropagate(self, search_path, value, value_multiplier=1.0):
+    def backpropagate_new(self, search_path, value, value_multiplier=1.0):
         """
         Backpropagation according to the paper that claims that the most greedy leaf should determine the value
         """
