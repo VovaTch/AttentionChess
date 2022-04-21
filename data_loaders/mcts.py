@@ -160,7 +160,7 @@ def ucb_scores(parent, children: dict, dir_noise: bool=False):
     """
     The score for an action that would transition between the parent and child.
     """
-    c_puct = 1
+    c_puct = 5
     dir_alpha = 0.35
     x_dir = 0.6
     

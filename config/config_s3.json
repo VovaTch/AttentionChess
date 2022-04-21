@@ -16,7 +16,7 @@
         }
     },
     "data_loader": {
-        "type": "FullSelfPlayLoader",
+        "type": "PreEndingChessLoader",
         "args":{
             "batch_size": 16,
             "validation_split": 0.00,
@@ -24,14 +24,15 @@
             "epochs_per_game": 3,
             "min_counts": 20,
             "device": "cuda:0",
-            "win_multiplier": 5
+            "win_multiplier": 5,
+            "boards_to_end": 7
         }
     },
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-5,
-            "weight_decay": 1e-8,
+            "lr": 1e-4,
+            "weight_decay": 1e-7,
             "amsgrad": true
         }
     },
