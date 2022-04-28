@@ -4,12 +4,16 @@ import torch
 from torch.utils.data import Dataset
 import chess
 import chess.pgn
+import logging
 import numpy as np
 
 from model.score_functions import ScoreScaling
 from utils.util import move_to_coordinate
 
 class RuleChessDataset(Dataset):
+
+    # Set to ignore the errors, such that it won't flood the log
+    logging.getLogger("chess.pgn").setLevel(logging.CRITICAL)
 
     def __init__(self, dataset_path, query_word_len=256, base_multiplier=0.95):
         super(RuleChessDataset, self).__init__()
@@ -98,11 +102,11 @@ class RuleChessDataset(Dataset):
 
             # Find the correct move
             board_value = 0
-            matching_idx = torch.nonzero(legal_move_word[:, 1] == move_per_word)
+            matching_idx = torch.nonzero(legal_move_word[:, 1] == move_per_word).squeeze().item()
             if score_factor > 0:
                 quality_vector_logit[0, matching_idx] = abs(score_function(idx)) * 10
             elif score_factor < 0:
-                quality_vector_logit[0, matching_idx] = -abs(score_function(idx)) * 10
+                quality_vector_logit[0, matching_idx] = 0# -abs(score_function(idx)) * 10
                 
             board_value = np.tanh(base_eval * abs(score_function(idx)))
 
@@ -123,7 +127,9 @@ class RuleChessDataset(Dataset):
             score_factor *= -1
 
         self.board_value_batch = torch.tensor(board_value_list)
+        print(move_idx_list)
         self.selected_move_idx = torch.tensor(move_idx_list)
+        # print(self.selected_move_idx)
 
     def __len__(self):
         return int(1e6)

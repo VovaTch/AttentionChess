@@ -100,6 +100,7 @@ class AttChess(BaseModel):
         self.dropout = nn.Dropout(p=dropout)
         self.tanh = nn.Tanh()
         
+        self.decoder_mask = torch.zeros((query_word_len, query_word_len))
 
     def forward(self, boards: list):
         """
@@ -174,7 +175,7 @@ class AttChess(BaseModel):
         queried_moves = self.query_embedding(query_words.long())
         queried_moves = queried_moves.repeat((1, 1, self.hidden_dim_mul))
         value_decoder_input = torch.cat((transformer_input.view(batch_size, -1, self.hidden_dim_2), query_input), 1)
-        decoder_output, decoder_output_aux = self.chess_decoder_stack(queried_moves, value_decoder_input)
+        decoder_output, decoder_output_aux = self.chess_decoder_stack(queried_moves, value_decoder_input, self.decoder_mask.to(boards.device))
         board_value = self.end_head(decoder_output)
         classification_scores = self.move_quality_cls_head(decoder_output)
         

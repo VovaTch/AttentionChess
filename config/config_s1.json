@@ -16,7 +16,7 @@
         }
     },
     "data_loader": {
-        "type": "EndingChessLoader",
+        "type": "RuleAttentionChessLoader",
         "args":{
             "batch_size": 16,
             "shuffle": true,
@@ -27,8 +27,8 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-5,
-            "weight_decay": 1e-8,
+            "lr": 1e-4,
+            "weight_decay": 1e-7,
             "amsgrad": true
         }
     },
@@ -37,15 +37,16 @@
         "type": "Criterion",
         "args": {
             "eos_coef": 1,
-            "losses": ["loss_board_value"]
+            "losses": ["loss_quality", "loss_board_value"]
         }
     },
     "loss_weights":
     {
-        "loss_board_value": 1
+        "loss_quality": 1,
+        "loss_board_value": 0
     },
     "metrics": [
-        "board_value_loss"
+        "board_value_loss", "quality_loss"
     ],
     "lr_scheduler": {
         "type": "StepLR",
