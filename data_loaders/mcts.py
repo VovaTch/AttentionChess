@@ -160,7 +160,7 @@ def ucb_scores(parent, children: dict, dir_noise: bool=False):
     """
     The score for an action that would transition between the parent and child.
     """
-    c_puct = 5
+    c_puct = 1.5
     dir_alpha = 0.35
     x_dir = 0.6
     
@@ -317,6 +317,7 @@ class MCTS:
             
         # Run sim for every board
         for _ in range(self.num_sims):
+            
             node_edge_list = [None for _ in roots] # Need to do this, otherwise the roots will be overridden by the leaf nodes
             search_path_list = [[node] for node in roots]
             
@@ -362,6 +363,7 @@ class MCTS:
                     
             # Forward all boards through the net
             if len(board_slice_list) > 0:
+                self.model_good_flag = not self.model_good_flag
                 legal_move_list, cls_prob_list, value = self.run_engine(board_slice_list)
             
             # Expand every node that didn't reach the end
@@ -373,7 +375,7 @@ class MCTS:
                     node_selection_idx += 1
                     
             for idx, search_path in enumerate(search_path_list):
-                self.backpropagate(search_path, value_list[idx])
+                self.backpropagate_new(search_path, value_list[idx])
                 
                 if verbose:
                     for node in search_path:
@@ -386,7 +388,7 @@ class MCTS:
                 
             
 
-    def backpropagate(self, search_path, value, value_multiplier=1.0):
+    def backpropagate(self, search_path, value, value_multiplier=0.95):
         
         half_move_accumilated = 1
         
@@ -409,6 +411,9 @@ class MCTS:
             
             node.visit_count += 1
             value *= value_multiplier
+            
+        # print([node.value_avg() for node in search_path])
+        # print([node.value_max() for node in search_path])
             
     def backpropagate_new(self, search_path, value, value_multiplier=1.0):
         """

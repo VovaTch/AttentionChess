@@ -31,7 +31,7 @@ class RuleAttentionChessLoader(BaseDataLoader):
     MNIST data loading demo using BaseDataLoader
     """
     def __init__(self, batch_size, collate_fn, data_dir='lichess_data/lichess_db_standard_rated_2016-09.pgn',
-                 shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256, base_multiplier=0.95):
+                 shuffle=True, validation_split=0.1, num_workers=1, training=True, query_word_len=256, base_multiplier=1.0):
 
         self.dataset_path = data_dir
         self.dataset = RuleChessDataset(data_dir, query_word_len=query_word_len, base_multiplier=base_multiplier)
@@ -95,6 +95,14 @@ class FullSelfPlayLoader(BaseDataLoader):
         
         self.set_mcts_game(mcts)
         self.set_mcts_learn(mcts)
+        
+    def set_white_engine(self, engine):
+        
+        self.dataset.white_engine = engine
+        
+    def set_black_engine(self, engine):
+        
+        self.dataset.black_engine = engine
         
         
 class PreEndingChessLoader(BaseDataLoader):

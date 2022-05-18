@@ -24,11 +24,19 @@ torch.backends.cudnn.benchmark = False
 np.random.seed(SEED)
 
 
+def weight_reset(m):
+    reset_parameters = getattr(m, "reset_parameters", None)
+    if callable(reset_parameters):
+        m.reset_parameters()
+
+
 def main(config):
     logger = config.get_logger('train')
 
     # build model architecture, then print to console
     model = config.init_obj('arch', module_arch)
+    model_random = config.init_obj('arch', module_arch)
+    model_random.apply(weight_reset)
     logger.info(model)
 
     # prepare for (multi-device) GPU training
@@ -63,6 +71,13 @@ def main(config):
     mcts_game = MCTS(copy.deepcopy(model), copy.deepcopy(model), 100, device=device, use_dir=True)
     data_loader.set_mcts_learn(mcts_learn)
     data_loader.set_mcts_game(mcts_game)
+
+    # Debugging and comparing 
+    if config['trainer']['white_random']:
+        trainer.white_engine = copy.deepcopy(model_random)
+    elif config['trainer']['black_random']:
+        trainer.black_engine = copy.deepcopy(model_random)
+        
 
     trainer.train()
 

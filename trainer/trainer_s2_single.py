@@ -16,7 +16,8 @@ class Trainer(BaseTrainer):
     Trainer class
     """
     def __init__(self, model, criterion, metric_ftns, optimizer, config, device,
-                 data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None, move_limit=125, clip_grad_norm=1e5):
+                 data_loader, valid_data_loader=None, lr_scheduler=None, len_epoch=None, move_limit=125, clip_grad_norm=1e5, 
+                 white_engine=None, black_engine=None):
         super().__init__(model, criterion, metric_ftns, optimizer, config)
         self.config = config
         self.device = device
@@ -37,6 +38,10 @@ class Trainer(BaseTrainer):
 
         self.train_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
         self.valid_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
+        
+        # Set up engines for black and white, checking if the play actually improves over time
+        self.white_engine = white_engine
+        self.black_engine = black_engine
 
     def _train_epoch(self, epoch):
         """
@@ -73,7 +78,7 @@ class Trainer(BaseTrainer):
                         for loss_type in loss_dict.keys() if loss_type[:-2] in self.config['loss_weights']])
             loss.backward()
             
-            torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clip_grad_norm)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip_grad_norm)
             self.optimizer.step()
 
             self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
@@ -101,6 +106,14 @@ class Trainer(BaseTrainer):
             if self.config['data_loader'] in ['FullSelfPlayLoader', 'PreEndingChessLoader']:
                 self.data_loader.dataset.mcts_game.good_model = copy.deepcopy(self.model)
                 self.data_loader.dataset.mcts_game.evil_model = copy.deepcopy(self.model)
+                
+            # Overwrite player specific engines if specified
+            if self.white_engine is not None:
+                self.data_loader.dataset.white_engine = self.white_engine
+                self.data_loader.dataset.black_engine = copy.deepcopy(self.model)
+            if self.black_engine is not None:
+                self.data_loader.dataset.white_engine = copy.deepcopy(self.model)
+                self.data_loader.dataset.black_engine = self.black_engine
             
         log = self.train_metrics.result()
 

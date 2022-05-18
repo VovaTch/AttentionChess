@@ -74,6 +74,9 @@ class AttChess(BaseModel):
         self.chess_encoder = nn.TransformerEncoderLayer(batch_first=True, d_model=self.hidden_dim_2,
                                                         nhead=num_heads, dropout=dropout, norm_first=True)
         self.chess_encoder_stack = nn.TransformerEncoder(self.chess_encoder, num_encoder)
+        self.value_enconder = nn.TransformerEncoderLayer(batch_first=True, d_model=self.hidden_dim_2,
+                                                        nhead=num_heads, dropout=dropout, norm_first=True)
+        self.value_encoder_stack = nn.TransformerEncoder(self.value_enconder, num_encoder)
         self.chess_decoder = nn.TransformerDecoderLayer(batch_first=True, d_model=self.hidden_dim_2,
                                                         nhead=num_heads, dropout=dropout, norm_first=True)
         self.chess_decoder_stack = TransformerAuxDecoder(self.chess_decoder, num_decoder, aux_out_intervals=num_decoder)
@@ -96,11 +99,11 @@ class AttChess(BaseModel):
         self.bypass_parameter_encoder = nn.Parameter(torch.zeros(1))
         self.enc_dec_MLP = MLP(self.hidden_dim_2, self.hidden_dim_2 * 8, self.hidden_dim_2, 3, dropout=dropout, ripple=ripple_net)
 
-        self.end_head = EndHead(query_word_len, self.hidden_dim_2)
+        self.end_head = EndHead(64, self.hidden_dim_2)
         self.dropout = nn.Dropout(p=dropout)
         self.tanh = nn.Tanh()
         
-        self.decoder_mask = torch.zeros((query_word_len, query_word_len))
+        self.decoder_mask = torch.log(torch.eye(query_word_len))
 
     def forward(self, boards: list):
         """
@@ -148,6 +151,8 @@ class AttChess(BaseModel):
         # Transformer encoder + classification head
         boards_flattened = boards.flatten(1, 2)
         head_eo = self.chess_encoder_stack(transformer_input)
+        head_value = self.value_encoder_stack(transformer_input)
+        board_value = self.end_head(head_value)
 
         # If the moves are need to be learned
         if legal_move_tensor is None:
@@ -176,7 +181,6 @@ class AttChess(BaseModel):
         queried_moves = queried_moves.repeat((1, 1, self.hidden_dim_mul))
         value_decoder_input = torch.cat((transformer_input.view(batch_size, -1, self.hidden_dim_2), query_input), 1)
         decoder_output, decoder_output_aux = self.chess_decoder_stack(queried_moves, value_decoder_input, self.decoder_mask.to(boards.device))
-        board_value = self.end_head(decoder_output)
         classification_scores = self.move_quality_cls_head(decoder_output)
         
         if batch_size == 1:
@@ -185,9 +189,9 @@ class AttChess(BaseModel):
         if self.aux_outputs_flag:
             aux_outputs = {f'loss_quality_{idx}': self.move_quality_cls_head(dec_out_aux).squeeze() 
                            for idx, dec_out_aux in enumerate(decoder_output_aux)}
-            aux_value = {f'loss_board_value_{idx}': self.end_head(dec_out_aux).squeeze() 
-                         for idx, dec_out_aux in enumerate(decoder_output_aux)}
-            aux_outputs.update(aux_value)
+            # aux_value = {f'loss_board_value_{idx}': self.end_head(dec_out_aux).squeeze() 
+            #              for idx, dec_out_aux in enumerate(decoder_output_aux)}
+            # aux_outputs.update(aux_value)
             return legal_move_out, classification_scores.squeeze(2), board_value, aux_outputs
         else:
             return legal_move_out, classification_scores.squeeze(2), board_value

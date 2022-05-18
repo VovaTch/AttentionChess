@@ -6,7 +6,8 @@
     "arch": {
         "type": "AttChess",
         "args": {
-            "num_heads": 32,
+            "hidden_dim": 64,
+            "num_heads": 8,
             "num_encoder": 6,
             "num_decoder": 6,
             "num_chess_conv_layers": 0,
@@ -18,12 +19,12 @@
     "data_loader": {
         "type": "RandomSelfPlayLoader",
         "args":{
-            "batch_size": 32,
+            "batch_size": 16,
             "shuffle": true,
             "validation_split": 0.00,
-            "num_workers": 2,
-            "epochs_per_game": 5,
-            "min_counts": 200,
+            "num_workers": 0,
+            "epochs_per_game": 1,
+            "min_counts": 100,
             "device": "cuda:0",
             "boards_per_sample": 32
         }
@@ -31,9 +32,9 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-4,
-            "weight_decay": 1e-7,
-            "amsgrad": false
+            "lr": 1e-5,
+            "weight_decay": 1e-8,
+            "amsgrad": true
         }
     },
     "loss":

@@ -27,9 +27,9 @@
     "optimizer": {
         "type": "AdamW",
         "args":{
-            "lr": 1e-4,
-            "weight_decay": 1e-7,
-            "amsgrad": true
+            "lr": 1e-5,
+            "weight_decay": 1e-8,
+            "amsgrad": false
         }
     },
     "loss":
@@ -42,8 +42,8 @@
     },
     "loss_weights":
     {
-        "loss_quality": 1,
-        "loss_board_value": 0
+        "loss_quality": 0,
+        "loss_board_value": 1
     },
     "metrics": [
         "board_value_loss", "quality_loss"

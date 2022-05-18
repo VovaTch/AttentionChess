@@ -5,6 +5,8 @@
     "version": "0.2.0",
     "configurations": [
 
+
+
         {
             "name": "Python: Current File",
             "type": "python",
@@ -19,6 +21,28 @@
             "request": "launch",
             "module": "scripts.train_supervised",
             "console": "integratedTerminal"
+        },
+
+        {
+            "name": "Python: Train Pre Ending",
+            "type": "python",
+            "request": "launch",
+            "module": "scripts.train_full_self_play",
+            "console": "integratedTerminal",
+            "args": [
+                "-r", "post_supervised.pth"
+            ]
+        },
+
+        {
+            "name": "Python: Train random self play",
+            "type": "python",
+            "request": "launch",
+            "module": "scripts.train_random_self_play",
+            "console": "integratedTerminal",
+            "args": [
+                "-r", "post_supervised.pth"
+            ]
         }
 
     ]

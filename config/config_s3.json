@@ -21,17 +21,17 @@
             "batch_size": 16,
             "validation_split": 0.00,
             "num_workers": 0,
-            "epochs_per_game": 15,
+            "epochs_per_game": 1,
             "min_counts": 20,
             "device": "cuda:0",
-            "win_multiplier": 5
+            "win_multiplier": 3
         }
     },
     "optimizer": {
         "type": "AdamW",
         "args":{
             "lr": 1e-4,
-            "weight_decay": 1e-8,
+            "weight_decay": 1e-7,
             "amsgrad": true
         }
     },
@@ -45,7 +45,7 @@
     },
     "loss_weights":
     {
-        "loss_quality": 1,
+        "loss_quality": 10,
         "loss_board_value": 1
     },
     "metrics": [
@@ -69,6 +69,9 @@
         "early_stop": 1e10,
         "clip_grad_norm": 0.1,
 
-        "tensorboard": true
+        "tensorboard": true,
+
+        "white_random": false,
+        "black_random": true
     }
 }

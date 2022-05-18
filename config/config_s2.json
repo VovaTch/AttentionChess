@@ -5,18 +5,20 @@
     "arch": {
         "type": "AttChess",
         "args": {
-            "num_heads": 4,
-            "num_encoder": 4,
-            "num_decoder": 4,
+            "hidden_dim": 64,
+            "num_heads": 8,
+            "num_encoder": 6,
+            "num_decoder": 6,
             "num_chess_conv_layers": 0,
             "p_embedding": true,
-            "dropout": 0.0
+            "dropout": 0.0,
+            "ripple_net": false
         }
     },
     "data_loader": {
         "type": "GuidedSelfPlayLoader",
         "args":{
-            "batch_size": 64,
+            "batch_size": 16,
             "shuffle": true,
             "validation_split": 0.00,
             "num_workers": 0,
